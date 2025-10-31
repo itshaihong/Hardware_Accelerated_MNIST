@@ -1,0 +1,96 @@
+{
+  "format": "csv",
+  "precision": "%.7g",
+  "flatten": false,
+  "tensors": [
+    {
+      "name": "conv1.weight",
+      "file": "conv1_weight.csv",
+      "shape": [
+        6,
+        1,
+        5,
+        5
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "conv1.bias",
+      "file": "conv1_bias.csv",
+      "shape": [
+        6
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "conv2.weight",
+      "file": "conv2_weight.csv",
+      "shape": [
+        16,
+        6,
+        5,
+        5
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "conv2.bias",
+      "file": "conv2_bias.csv",
+      "shape": [
+        16
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "fc1.weight",
+      "file": "fc1_weight.csv",
+      "shape": [
+        120,
+        400
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "fc1.bias",
+      "file": "fc1_bias.csv",
+      "shape": [
+        120
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "fc2.weight",
+      "file": "fc2_weight.csv",
+      "shape": [
+        84,
+        120
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "fc2.bias",
+      "file": "fc2_bias.csv",
+      "shape": [
+        84
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "fc3.weight",
+      "file": "fc3_weight.csv",
+      "shape": [
+        10,
+        84
+      ],
+      "dtype": "float32"
+    },
+    {
+      "name": "fc3.bias",
+      "file": "fc3_bias.csv",
+      "shape": [
+        10
+      ],
+      "dtype": "float32"
+    }
+  ]
+}

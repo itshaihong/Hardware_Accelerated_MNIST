@@ -45,8 +45,8 @@ static constexpr float MEAN = 0.1307f;
 static constexpr float STD = 0.3081f;
 
 struct Args {
-    std::string image = "..\\MNIST_python\\test_3.png";
-    std::string weights_dir = "..\\MNIST_python\\weights_csv";
+    std::string image = "../MNIST_python/test_3.png";
+    std::string weights_dir = "../MNIST_python/weights_csv";
     std::string invert = "auto"; // "auto", "yes", "no"
     int topk = 3;
     std::optional<std::string> save_preprocessed;

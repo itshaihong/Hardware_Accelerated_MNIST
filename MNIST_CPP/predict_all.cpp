@@ -5,6 +5,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <stdexcept>
+#include <algorithm>
 
 
 static std::vector<char> readFileBytes(const std::string& path) {
@@ -88,100 +90,87 @@ static void read_idx_labels(const std::string& path, int& num, std::vector<unsig
 }
 
 
-// Tensor helper accessors for flattened arrays
-inline size_t idx4(size_t c, size_t ic, size_t kh, size_t kw, size_t IC, size_t KH, size_t KW) {
-    return (((c * IC + ic) * KH + kh) * KW + kw);
-}
-inline size_t idx3(size_t c, size_t h, size_t w, size_t H, size_t W) {
-    return ((c * H + h) * W + w);
+// ---------- Simple tensor helpers ----------
+inline size_t idx3(size_t c, size_t h, size_t w, size_t C, size_t H, size_t W) {
+    return c*H*W + h*W + w;
 }
 
-// ReLU in-place
-void relu(std::vector<float>& x) {
-    for (auto& v : x) if (v < 0.0f) v = 0.0f;
-}
+inline float relu(float x) { return x > 0.f ? x : 0.f; }
 
-// MaxPool2d 2x2 stride 2: input [C,H,W] -> output [C,H/2,W/2]
-std::vector<float> maxpool2x2(const std::vector<float>& x, size_t C, size_t H, size_t W) {
-    size_t Ho = H / 2, Wo = W / 2;
-    std::vector<float> y(C * Ho * Wo, 0.0f);
+// 2D average pool with kernel=2, stride=2 (no padding)
+static void avgpool2x2(const std::vector<float>& in, size_t C, size_t H, size_t W,
+                       std::vector<float>& out) {
+    size_t Ho = H / 2;
+    size_t Wo = W / 2;
+    out.assign(C * Ho * Wo, 0.f);
     for (size_t c = 0; c < C; ++c) {
-        for (size_t i = 0; i < Ho; ++i) {
-            for (size_t j = 0; j < Wo; ++j) {
-                float m = -std::numeric_limits<float>::infinity();
-                for (size_t di = 0; di < 2; ++di) {
-                    for (size_t dj = 0; dj < 2; ++dj) {
-                        size_t h = i * 2 + di;
-                        size_t w = j * 2 + dj;
-                        m = std::max(m, x[idx3(c, h, w, H, W)]);
-                    }
-                }
-                y[idx3(c, i, j, Ho, Wo)] = m;
+        for (size_t ho = 0; ho < Ho; ++ho) {
+            for (size_t wo = 0; wo < Wo; ++wo) {
+                size_t h = ho * 2;
+                size_t w = wo * 2;
+                float s = 0.f;
+                s += in[idx3(c, h,   w,   C, H, W)];
+                s += in[idx3(c, h,   w+1, C, H, W)];
+                s += in[idx3(c, h+1, w,   C, H, W)];
+                s += in[idx3(c, h+1, w+1, C, H, W)];
+                out[idx3(c, ho, wo, C, Ho, Wo)] = s * 0.25f;
             }
         }
     }
-    return y;
 }
 
-// Conv2d: input [IC,H,W], weights [OC,IC,KH,KW], bias [OC], padding P (same padding on H,W), stride 1
-std::vector<float> conv2d(const std::vector<float>& x, size_t IC, size_t H, size_t W,
-                          const std::vector<float>& w, const std::vector<float>& b,
-                          size_t OC, size_t KH, size_t KW, int P) {
-    size_t Ho = H + 2 * P - KH + 1;
-    size_t Wo = W + 2 * P - KW + 1;
-    std::vector<float> y(OC * Ho * Wo, 0.0f);
+// conv2d: input [C_in,H,W], weights [C_out,C_in,Kh,Kw], bias [C_out]
+// stride=1, padding as specified (symmetric), activation=ReLU if relu_flag
+static void conv2d(const std::vector<float>& in, size_t C_in, size_t H, size_t W,
+                   const std::vector<float>& w, const std::vector<float>& b,
+                   size_t C_out, size_t Kh, size_t Kw, int pad, bool relu_flag,
+                   std::vector<float>& out) {
+    size_t Hout = H + 2*pad - Kh + 1;
+    size_t Wout = W + 2*pad - Kw + 1;
+    out.assign(C_out * Hout * Wout, 0.f);
 
-    for (size_t oc = 0; oc < OC; ++oc) {
-        for (size_t oh = 0; oh < Ho; ++oh) {
-            for (size_t ow = 0; ow < Wo; ++ow) {
-                float acc = b[oc];
-                for (size_t ic = 0; ic < IC; ++ic) {
-                    for (size_t kh = 0; kh < KH; ++kh) {
-                        int ih = static_cast<int>(oh) + static_cast<int>(kh) - P;
-                        if (ih < 0 || ih >= static_cast<int>(H)) continue;
-                        for (size_t kw = 0; kw < KW; ++kw) {
-                            int iw = static_cast<int>(ow) + static_cast<int>(kw) - P;
-                            if (iw < 0 || iw >= static_cast<int>(W)) continue;
-                            float xv = x[idx3(ic, (size_t)ih, (size_t)iw, H, W)];
-                            float wv = w[idx4(oc, ic, kh, kw, IC, KH, KW)];
-                            acc += xv * wv;
+    for (size_t co = 0; co < C_out; ++co) {
+        for (size_t ho = 0; ho < Hout; ++ho) {
+            for (size_t wo = 0; wo < Wout; ++wo) {
+                float acc = b.empty() ? 0.f : b[co];
+                for (size_t ci = 0; ci < C_in; ++ci) {
+                    for (size_t kh = 0; kh < Kh; ++kh) {
+                        int ih = int(ho + kh) - pad;
+                        if (ih < 0 || ih >= (int)H) continue;
+                        for (size_t kw = 0; kw < Kw; ++kw) {
+                            int iw = int(wo + kw) - pad;
+                            if (iw < 0 || iw >= (int)W) continue;
+                            float iv = in[idx3(ci, (size_t)ih, (size_t)iw, C_in, H, W)];
+                            // weight index: [co, ci, kh, kw]
+                            size_t widx = ((co * C_in + ci) * Kh + kh) * Kw + kw;
+                            acc += iv * w[widx];
                         }
                     }
                 }
-                y[idx3(oc, oh, ow, Ho, Wo)] = acc;
+                if (relu_flag) acc = relu(acc);
+                out[idx3(co, ho, wo, C_out, Hout, Wout)] = acc;
             }
         }
     }
-    return y;
 }
 
-// Linear: y = W x + b; W [O,I], x [I], b [O]
-std::vector<float> linear(const std::vector<float>& W, const std::vector<float>& b, size_t O, size_t I, const std::vector<float>& x) {
-    std::vector<float> y(O, 0.0f);
-    for (size_t o = 0; o < O; ++o) {
-        float acc = b[o];
-        const size_t row_start = o * I;
-        for (size_t i = 0; i < I; ++i) {
-            acc += W[row_start + i] * x[i];
-        }
+// Fully connected: y = W x + b
+// W shape [out_features, in_features], x shape [in_features]
+static void linear(const std::vector<float>& x,
+                   const std::vector<float>& W,
+                   const std::vector<float>& b,
+                   size_t out_features,
+                   std::vector<float>& y) {
+    size_t in_features = W.size() / out_features;
+    y.assign(out_features, 0.f);
+    for (size_t o = 0; o < out_features; ++o) {
+        const float* wrow = &W[o * in_features];
+        float acc = b.empty() ? 0.f : b[o];
+        for (size_t i = 0; i < in_features; ++i) acc += wrow[i] * x[i];
         y[o] = acc;
     }
-    return y;
 }
 
-std::vector<float> softmax(const std::vector<float>& logits) {
-    std::vector<float> y(logits.size());
-    float maxv = *std::max_element(logits.begin(), logits.end());
-    double sum = 0.0;
-    for (size_t i = 0; i < logits.size(); ++i) {
-        y[i] = std::exp(logits[i] - maxv);
-        sum += y[i];
-    }
-    for (size_t i = 0; i < logits.size(); ++i) {
-        y[i] = static_cast<float>(y[i] / sum);
-    }
-    return y;
-}
 
 
 int main() {
@@ -242,6 +231,9 @@ int main() {
     if (fc2_w.size() != 84u*120u) { std::cerr << "fc2_w size mismatch\n"; return 1; }
     if (fc3_w.size() != 10u*84u) { std::cerr << "fc3_w size mismatch\n"; return 1; }
 
+    size_t correct = 0;
+    auto t0 = std::chrono::high_resolution_clock::now();
+
     // Buffers reused across images to reduce allocations
     std::vector<float> x0(1*28*28);
     std::vector<float> c1, p1, c2, p2, flat, y1, y2, logits;
@@ -294,8 +286,8 @@ int main() {
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double secs = std::chrono::duration<double>(t1 - t0).count();
-    double fps = double(N) / secs;
-    double avg_ms = (secs * 1000.0) / double(N);
+    double fps = double(num_images) / secs;
+    double avg_ms = (secs * 1000.0) / double(num_images);
 
     std::cout << "\n=== Results (Pure C++ CPU) ===\n";
     std::cout << "Accuracy: " << (100.0 * correct / num_images) << "% (" << correct << "/" << num_images << ")\n";

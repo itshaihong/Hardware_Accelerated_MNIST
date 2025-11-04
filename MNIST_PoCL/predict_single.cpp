@@ -10,9 +10,17 @@
 #include <string>
 #include <tuple>
 #include <vector>
+#define CL_TARGET_OPENCL_VERSION 120
+#include <CL/cl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
 static constexpr float MEAN = 0.1307f;
 static constexpr float STD = 0.3081f;
+
+#define CHECK(status, msg) \
+    if (status != CL_SUCCESS) { fprintf(stderr, "%s Error: %d\n", msg, status); return -1; }
 
 struct Args {
     std::string image = "../MNIST_python/test_3.png";

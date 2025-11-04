@@ -101,19 +101,33 @@ int main() {
     std::string images_path = "../MNIST_python/t10k-images.idx3-ubyte";
     std::string labels_path = "../MNIST_python/t10k-labels.idx1-ubyte";
     std::string kernel_path = "kernel.cl";
-    std::string wpath = "../MNIST_python/weights_csv";
+    // std::string wpath = "../MNIST_python/weights_csv";
+
+    // // Read weights (float32)
+    // auto conv1_w = read_csv_flat(wpath + "/conv1_weight.csv");
+    // auto conv1_b = read_csv_flat(wpath + "/conv1_bias.csv");
+    // auto conv2_w = read_csv_flat(wpath + "/conv2_weight.csv");
+    // auto conv2_b = read_csv_flat(wpath + "/conv2_bias.csv");
+    // auto fc1_w   = read_csv_flat(wpath + "/fc1_weight.csv");
+    // auto fc1_b   = read_csv_flat(wpath + "/fc1_bias.csv");
+    // auto fc2_w   = read_csv_flat(wpath + "/fc2_weight.csv");
+    // auto fc2_b   = read_csv_flat(wpath + "/fc2_bias.csv");
+    // auto fc3_w   = read_csv_flat(wpath + "/fc3_weight.csv");
+    // auto fc3_b   = read_csv_flat(wpath + "/fc3_bias.csv");
+
+    std::string wpath = "../MNIST_python/weights_fp32";
 
     // Read weights (float32)
-    auto conv1_w = read_csv_flat(wpath + "/conv1_weight.csv");
-    auto conv1_b = read_csv_flat(wpath + "/conv1_bias.csv");
-    auto conv2_w = read_csv_flat(wpath + "/conv2_weight.csv");
-    auto conv2_b = read_csv_flat(wpath + "/conv2_bias.csv");
-    auto fc1_w   = read_csv_flat(wpath + "/fc1_weight.csv");
-    auto fc1_b   = read_csv_flat(wpath + "/fc1_bias.csv");
-    auto fc2_w   = read_csv_flat(wpath + "/fc2_weight.csv");
-    auto fc2_b   = read_csv_flat(wpath + "/fc2_bias.csv");
-    auto fc3_w   = read_csv_flat(wpath + "/fc3_weight.csv");
-    auto fc3_b   = read_csv_flat(wpath + "/fc3_bias.csv");
+    auto conv1_w = readFloats(wpath + "/conv1_weight.bin"); // [6*1*5*5]
+    auto conv1_b = readFloats(wpath + "/conv1_bias.bin");   // [6]
+    auto conv2_w = readFloats(wpath + "/conv2_weight.bin"); // [16*6*5*5]
+    auto conv2_b = readFloats(wpath + "/conv2_bias.bin");   // [16]
+    auto fc1_w   = readFloats(wpath + "/fc1_weight.bin");   // [120*400]
+    auto fc1_b   = readFloats(wpath + "/fc1_bias.bin");     // [120]
+    auto fc2_w   = readFloats(wpath + "/fc2_weight.bin");   // [84*120]
+    auto fc2_b   = readFloats(wpath + "/fc2_bias.bin");     // [84]
+    auto fc3_w   = readFloats(wpath + "/fc3_weight.bin");   // [10*84]
+    auto fc3_b   = readFloats(wpath + "/fc3_bias.bin");     // [10]
 
     // Read IDX test set
     int num_images, rows, cols;

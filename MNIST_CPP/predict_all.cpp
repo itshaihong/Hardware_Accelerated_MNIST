@@ -97,8 +97,8 @@ inline size_t idx3(size_t c, size_t h, size_t w, size_t C, size_t H, size_t W) {
 
 inline float relu(float x) { return x > 0.f ? x : 0.f; }
 
-// 2D average pool with kernel=2, stride=2 (no padding)
-static void avgpool2x2(const std::vector<float>& in, size_t C, size_t H, size_t W,
+// 2D max pool with kernel=2, stride=2 (no padding)
+static void maxpool2x2(const std::vector<float>& in, size_t C, size_t H, size_t W,
                        std::vector<float>& out) {
     size_t Ho = H / 2;
     size_t Wo = W / 2;
@@ -108,12 +108,11 @@ static void avgpool2x2(const std::vector<float>& in, size_t C, size_t H, size_t 
             for (size_t wo = 0; wo < Wo; ++wo) {
                 size_t h = ho * 2;
                 size_t w = wo * 2;
-                float s = 0.f;
-                s += in[idx3(c, h,   w,   C, H, W)];
-                s += in[idx3(c, h,   w+1, C, H, W)];
-                s += in[idx3(c, h+1, w,   C, H, W)];
-                s += in[idx3(c, h+1, w+1, C, H, W)];
-                out[idx3(c, ho, wo, C, Ho, Wo)] = s * 0.25f;
+                float m = in[idx3(c, h,   w,   C, H, W)];
+                m = std::max(m, in[idx3(c, h,   w+1, C, H, W)]);
+                m = std::max(m, in[idx3(c, h+1, w,   C, H, W)]);
+                m = std::max(m, in[idx3(c, h+1, w+1, C, H, W)]);
+                out[idx3(c, ho, wo, C, Ho, Wo)] = m;
             }
         }
     }

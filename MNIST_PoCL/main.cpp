@@ -137,7 +137,7 @@ int main() {
     // Get all platforms. Assuming 2 here.
     cl_platform_id platform[2]; // assuming a total of 2 platforms.
     err = clGetPlatformIDs(2, platform, NULL);
-    CHECK(err, "clGetPlatformIDs failed");
+    checkErr(err, "clGetPlatformIDs failed");
 
     // Get CPU/GPU/FPGA device
     // Change CL_DEVICE_TYPE_SEL to CL_DEVICE_TYPE_CPU if using PoCL, CL_DEVICE_TYPE_GPU if using GPU.
@@ -154,7 +154,7 @@ int main() {
     
     cl_device_id device;
     err = clGetDeviceIDs(platform[PLATFORM_INDEX], CL_DEVICE_TYPE_SEL, 1, &device, NULL); 
-    CHECK(err, "clGetDeviceIDs failed");
+    checkErr(err, "clGetDeviceIDs failed");
 
     cl_context context = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &err);
     checkErr(err, "clCreateContext");

@@ -134,20 +134,27 @@ int main() {
 
     // OpenCL setup: platform, device, context, queue
     cl_int err;
-    cl_uint numPlatforms = 0;
-    checkErr(clGetPlatformIDs(0, nullptr, &numPlatforms), "clGetPlatformIDs count");
-    std::vector<cl_platform_id> platforms(numPlatforms);
-    checkErr(clGetPlatformIDs(numPlatforms, platforms.data(), nullptr), "clGetPlatformIDs");
-    cl_platform_id platform = platforms[0];
+    // Get all platforms. Assuming 2 here.
+    cl_platform_id platform[2]; // assuming a total of 2 platforms.
+    err = clGetPlatformIDs(2, platform, NULL);
+    CHECK(err, "clGetPlatformIDs failed");
 
-    cl_uint numDevices = 0;
-    checkErr(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &numDevices), "clGetDeviceIDs count");
-    if (numDevices == 0) {
-        checkErr(clGetDeviceIDs(platform, CL_DEVICE_TYPE_CPU, 0, nullptr, &numDevices), "clGetDeviceIDs CPU count");
-    }
-    std::vector<cl_device_id> devices(numDevices);
-    checkErr(clGetDeviceIDs(platform, (numDevices ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_CPU), numDevices, devices.data(), nullptr), "clGetDeviceIDs");
-    cl_device_id device = devices[0];
+    // Get CPU/GPU/FPGA device
+    // Change CL_DEVICE_TYPE_SEL to CL_DEVICE_TYPE_CPU if using PoCL, CL_DEVICE_TYPE_GPU if using GPU.
+    // For PC, GPU is generally the first platform (PLATFORM_INDEX is 0), CPU (PoCL) second. 
+    // For Kria, CPU (PoCL, if installed) is generally the first platform (PLATFORM_INDEX is 0), FPGA second.
+    // **Important**: Check the order via `clinfo` and make selections appropropriately.
+    #ifdef USE_XCLBIN
+        #define CL_DEVICE_TYPE_SEL CL_DEVICE_TYPE_ACCELERATOR
+        #define PLATFORM_INDEX 1
+    #else
+        #define CL_DEVICE_TYPE_SEL CL_DEVICE_TYPE_CPU
+        #define PLATFORM_INDEX 0 
+    #endif
+    
+    cl_device_id device;
+    err = clGetDeviceIDs(platform[PLATFORM_INDEX], CL_DEVICE_TYPE_SEL, 1, &device, NULL); 
+    CHECK(err, "clGetDeviceIDs failed");
 
     cl_context context = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &err);
     checkErr(err, "clCreateContext");

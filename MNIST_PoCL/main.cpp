@@ -347,7 +347,7 @@ int main() {
 
     double avg_ms = total_ms / num_images;
     double fps = 1000.0 / avg_ms;
-    std::cout << "\n=== Results (OpenCL GPU) ===\n";
+    std::cout << "\n=== Results (PoCL CPU) ===\n";
     std::cout << "Accuracy: " << (100.0 * correct / num_images) << "% (" << correct << "/" << num_images << ")\n";
     std::cout << "Average inference time: " << avg_ms << " ms\n";
     std::cout << "Throughput: " << fps << " FPS\n";

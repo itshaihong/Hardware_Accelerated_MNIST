@@ -38,14 +38,19 @@ static qint8 ref_conv5x5_pixel(
                     iv = in_q[in_idx];
                 }
                 const int w_idx = w_base + kh * 5 + kw;
+                assert(w_idx >= 0 && static_cast<size_t>(w_idx) < w_q.size());
                 const qint8 wv = w_q[w_idx];
                 acc += (qint16)iv * (qint16)wv;
             }
         }
     }
     if (acc < 0) acc = 0; // ReLU
-    int scaled = (int)(scale_S * (float)acc);
-    if (shift > 0) scaled >>= shift;
+    // int scaled = (int)(scale_S * (float)acc);
+    // if (shift > 0) scaled >>= shift;
+    // return clamp_int8_ref(scaled);
+    int mul = (int)std::lround(scale_S * (1 << std::max(shift, 0)));
+    int scaled = ((int)acc * mul);
+    if (shift > 0) scaled = (scaled + (1 << (shift - 1))) >> shift;
     return clamp_int8_ref(scaled);
 }
 
@@ -133,11 +138,8 @@ static int run_one_case(
     gen_random_bias(b_q);
 
     // Call HLS kernel
-    status_buf[0] = 0;
     cnn_accel(in_q.data(), w_q.data(), b_q.data(), out_q_hw.data(),
-              Cin, H, W, Cout, pad, pool, scale_S, shift, status_buf.data());
-    while (status_buf[0] != 1) {
-    }
+              Cin, H, W, Cout, pad, pool, scale_S, shift);
 
     // Reference
     ref_run(in_q, w_q, b_q, out_q_ref, Cin, H, W, Cout, pad, pool, scale_S, shift);

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # lenet5_kria_pynq.py
 #
 # LeNet-5 inference on Kria:
@@ -69,6 +68,7 @@ def preprocess_image_28x28(path: str, invert: bool = False, normalize: bool = Tr
     return x
 
 
+
 def compute_output_shape(Cin: int, H: int, W: int, Cout: int, pad: int, pool: int):
     Hout_conv = H + 2 * pad - 5 + 1
     Wout_conv = W + 2 * pad - 5 + 1
@@ -78,7 +78,7 @@ def compute_output_shape(Cin: int, H: int, W: int, Cout: int, pad: int, pool: in
         return Cout, Hout_conv // 2, Wout_conv // 2
 
 
-def write_params_axis_lite(ip, Cin, H, W, Cout, pad, pool, scale_S, shift):
+def program_params(ip, Cin, H, W, Cout, pad, pool, scale_S, shift):
     # Adjust these offsets to match your IP register map
     REG_CTRL  = 0x00  # bit0 ap_start
     REG_CIN   = 0x10
@@ -101,11 +101,13 @@ def write_params_axis_lite(ip, Cin, H, W, Cout, pad, pool, scale_S, shift):
 
     return REG_CTRL
 
+def build_stream(in_q_int8, w_q_int8, b_q_int16):
+    in_bytes = in_q_int8.reshape(-1).view(np.uint8)
+    w_bytes  = w_q_int8.reshape(-1).view(np.uint8)
+    b_bytes  = b_q_int16.reshape(-1).view(np.uint8)  # 2 bytes each
+    return np.concatenate([in_bytes, w_bytes, b_bytes])
 
-def run_conv_axis_dma(ol: Overlay, dma_name: str, ip_name: str,
-                      in_map_int8: np.ndarray,
-                      Cin: int, H: int, W: int, Cout: int, pad: int, pool: int,
-                      scale_S: float, shift: int) -> np.ndarray:
+def run_layer_axis_dma(ol, ip_name, dma_name, images, w_int8, b_int16, Cin, H, W, Cout, pad, pool, scale_S, shift):
     ip = getattr(ol, ip_name)
     dma = getattr(ol, dma_name)
 
@@ -115,28 +117,29 @@ def run_conv_axis_dma(ol: Overlay, dma_name: str, ip_name: str,
     in_len = Cin * H * W
     out_len = Cout_o * H_o * W_o
 
-    in_buf = allocate(shape=(in_len,), dtype=np.int8)
-    out_buf = allocate(shape=(out_len,), dtype=np.int8)
+    outputs = []
+    for img in images:
+        payload = build_stream(np.asarray(img, dtype=np.int8),
+                               np.asarray(w_int8, dtype=np.int8),
+                               np.asarray(b_int16, dtype=np.int16))
+        in_buf  = allocate(shape=(payload.size,), dtype=np.uint8)
+        out_buf = allocate(shape=(out_len,), dtype=np.uint8)
+        np.copyto(in_buf, payload)
 
-    if in_map_int8.size != in_len:
-        raise ValueError(f"Input size mismatch: expected {in_len}, got {in_map_int8.size}")
-    np.copyto(in_buf, in_map_int8.reshape(-1))
+        ip.write(REG_CTRL, 1)  # ap_start
 
-    # Start the core
-    ip.write(REG_CTRL, 1)  # ap_start
+        dma.sendchannel.transfer(in_buf)
+        dma.recvchannel.transfer(out_buf)
+        dma.sendchannel.wait()
+        dma.recvchannel.wait()
 
-    # Stream input to IP, receive output from IP
-    dma.sendchannel.transfer(in_buf)
-    dma.recvchannel.transfer(out_buf)
-    dma.sendchannel.wait()
-    dma.recvchannel.wait()
+        out = out_buf.view(np.int8).copy().reshape((Cout_o, H_o, W_o))
+        outputs.append(out)
 
-    out_np = np.array(out_buf, dtype=np.int8).reshape((Cout_o, H_o, W_o))
+        in_buf.freebuffer()
+        out_buf.freebuffer()
 
-    in_buf.freebuffer()
-    out_buf.freebuffer()
-
-    return out_np
+    return outputs
 
 
 def load_csv_matrix(path: str, shape: tuple) -> np.ndarray:
@@ -171,14 +174,20 @@ def run_lenet5(ol: Overlay, dma_name: str, ip_name: str,
                conv1_pad: int, conv1_Cout: int, pool1_mode: int,
                conv2_pad: int, conv2_Cout: int, pool2_mode: int,
                scale_S: float, shift: int,
+               conv1_w_path: str, conv1_b_path: str,
+               conv2_w_path: str, conv2_b_path: str,
                fc1_w_path: str, fc1_b_path: str,
                fc2_w_path: str, fc2_b_path: str,
                fc3_w_path: str, fc3_b_path: str):
     # Stage 1: Conv1+ReLU+Pool on PL
     Cin1, H1, W1 = 1, 28, 28
-    fmap1 = run_conv_axis_dma(
+    conv1_W = load_csv_matrix(conv1_w_path, (6, 1, 5, 5))
+    conv1_b = load_csv_vector(conv1_w_path, 6)
+    fmap1 = run_layer_axis_dma(
         ol, dma_name, ip_name,
         in_map_int8=img_or_random.reshape(1, H1, W1).astype(np.int8),
+        w_int8=conv1_W,
+        b_int8=conv1_b,
         Cin=Cin1, H=H1, W=W1, Cout=conv1_Cout, pad=conv1_pad, pool=pool1_mode,
         scale_S=scale_S, shift=shift
     )  # shape: [6, 14, 14] for default
@@ -186,9 +195,13 @@ def run_lenet5(ol: Overlay, dma_name: str, ip_name: str,
     # Stage 2: Conv2+ReLU+Pool on PL
     Cin2 = conv1_Cout
     H2, W2 = fmap1.shape[1], fmap1.shape[2]  # 14x14
-    fmap2 = run_conv_axis_dma(
+    conv2_W = load_csv_matrix(conv2_w_path, (16, 6, 5, 5))
+    conv2_b = load_csv_vector(conv2_w_path, 16)
+    fmap2 = run_layer_axis_dma(
         ol, dma_name, ip_name,
         in_map_int8=fmap1.astype(np.int8),
+        w_int8=conv2_W,
+        b_int8=conv2_b,
         Cin=Cin2, H=H2, W=W2, Cout=conv2_Cout, pad=conv2_pad, pool=pool2_mode,
         scale_S=scale_S, shift=shift
     )  # shape: [16, 5, 5] for default
@@ -241,6 +254,10 @@ def main():
     parser.add_argument("--shift", type=int, default=0, help="Requantization right-shift in conv IP")
 
     # FC CSVs
+    parser.add_argument("--conv1_w", type=str, required=True, help="Path to conv1_weight.csv ")
+    parser.add_argument("--conv1_b", type=str, required=True, help="Path to conv1_bias.csv ")
+    parser.add_argument("--conv2_w", type=str, required=True, help="Path to conv2_weight.csv ")
+    parser.add_argument("--conv2_b", type=str, required=True, help="Path to conv2_bias.csv ")
     parser.add_argument("--fc1_w", type=str, required=True, help="Path to fc1_weight.csv (120x400)")
     parser.add_argument("--fc1_b", type=str, required=True, help="Path to fc1_bias.csv (120)")
     parser.add_argument("--fc2_w", type=str, required=True, help="Path to fc2_weight.csv (84x120)")
@@ -268,16 +285,14 @@ def main():
         conv1_pad=args.conv1_pad, conv1_Cout=args.conv1_cout, pool1_mode=args.pool1,
         conv2_pad=args.conv2_pad, conv2_Cout=args.conv2_cout, pool2_mode=args.pool2,
         scale_S=args.scale_S, shift=args.shift,
+        conv1_w_path=args.conv1_w, fconv1_b_path=args.conv1_b,
+        conv2_w_path=args.conv2_w, fconv2_b_path=args.conv2_b,
         fc1_w_path=args.fc1_w, fc1_b_path=args.fc1_b,
         fc2_w_path=args.fc2_w, fc2_b_path=args.fc2_b,
         fc3_w_path=args.fc3_w, fc3_b_path=args.fc3_b
     )
 
-    # Report
-    print(f"Prediction: {pred}")
-    print("Top-10 probabilities:")
-    for i, p in enumerate(probs):
-        print(f"  class {i}: {p:.4f}")
+
 
 
 if __name__ == "__main__":

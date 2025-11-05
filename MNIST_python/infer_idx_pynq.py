@@ -28,6 +28,8 @@
 import argparse
 import numpy as np
 from pynq import Overlay, allocate
+from load_idx import load_mnist_images, load_mnist_labels
+import time
 
 try:
     from PIL import Image
@@ -170,39 +172,32 @@ def softmax(x: np.ndarray) -> np.ndarray:
 
 
 def run_lenet5(ol: Overlay, dma_name: str, ip_name: str,
-               img_or_random: np.ndarray,
-               conv1_pad: int, conv1_Cout: int, pool1_mode: int,
-               conv2_pad: int, conv2_Cout: int, pool2_mode: int,
+               image,
                scale_S: float, shift: int,
-               conv1_w_path: str, conv1_b_path: str,
-               conv2_w_path: str, conv2_b_path: str,
-               fc1_w_path: str, fc1_b_path: str,
-               fc2_w_path: str, fc2_b_path: str,
-               fc3_w_path: str, fc3_b_path: str):
+               conv1_W, conv1_b,
+               conv2_W, conv2_b,
+               fc1_W, fc1_b,
+               fc2_W, fc2_b,
+               fc3_W, fc3_b):
     # Stage 1: Conv1+ReLU+Pool on PL
     Cin1, H1, W1 = 1, 28, 28
-    conv1_W = load_csv_matrix(conv1_w_path, (6, 1, 5, 5))
-    conv1_b = load_csv_vector(conv1_w_path, 6)
     fmap1 = run_layer_axis_dma(
         ol, dma_name, ip_name,
-        in_map_int8=img_or_random.reshape(1, H1, W1).astype(np.int8),
+        in_map_int8=image.astype(np.int8),
         w_int8=conv1_W,
         b_int8=conv1_b,
-        Cin=Cin1, H=H1, W=W1, Cout=conv1_Cout, pad=conv1_pad, pool=pool1_mode,
+        Cin=Cin1, H=H1, W=W1, Cout=6, pad=2, pool=POOL_MAX2x2,
         scale_S=scale_S, shift=shift
     )  # shape: [6, 14, 14] for default
 
     # Stage 2: Conv2+ReLU+Pool on PL
-    Cin2 = conv1_Cout
-    H2, W2 = fmap1.shape[1], fmap1.shape[2]  # 14x14
-    conv2_W = load_csv_matrix(conv2_w_path, (16, 6, 5, 5))
-    conv2_b = load_csv_vector(conv2_w_path, 16)
+    Cin2, H2, W2 = 6, 14, 14
     fmap2 = run_layer_axis_dma(
         ol, dma_name, ip_name,
         in_map_int8=fmap1.astype(np.int8),
         w_int8=conv2_W,
         b_int8=conv2_b,
-        Cin=Cin2, H=H2, W=W2, Cout=conv2_Cout, pad=conv2_pad, pool=pool2_mode,
+        Cin=Cin2, H=H2, W=W2, Cout=16, pad=0, pool=POOL_MAX2x2,
         scale_S=scale_S, shift=shift
     )  # shape: [16, 5, 5] for default
 
@@ -210,87 +205,121 @@ def run_lenet5(ol: Overlay, dma_name: str, ip_name: str,
     flat = fmap2.astype(np.float32).reshape(-1)  # 16*5*5 = 400
 
     # FC1: 400 -> 120 (float32 on PS)
-    fc1_W = load_csv_matrix(fc1_w_path, (120, 400))  # out x in
-    fc1_b = load_csv_vector(fc1_b_path, 120)
     h1 = fc1_W @ flat + fc1_b
     relu_inplace(h1)
 
     # FC2: 120 -> 84
-    fc2_W = load_csv_matrix(fc2_w_path, (84, 120))
-    fc2_b = load_csv_vector(fc2_b_path, 84)
     h2 = fc2_W @ h1 + fc2_b
     relu_inplace(h2)
 
     # FC3: 84 -> 10
-    fc3_W = load_csv_matrix(fc3_w_path, (10, 84))
-    fc3_b = load_csv_vector(fc3_b_path, 10)
     logits = fc3_W @ h2 + fc3_b
 
-    probs = softmax(logits)
-    pred = int(np.argmax(probs))
-    return pred, probs, (fmap1, fmap2, h1, h2, logits)
+    return logits
 
+# Evaluate saved LeNet-5 model on raw idx test files (CPU)
+def evaluate_idx(images_path, labels_path, weights_path):
+
+    # Load idx data
+    images = load_mnist_images(images_path)  # shape [N,1,28,28] in [0,1]
+    labels = load_mnist_labels(labels_path)  # shape [N]
+    labels = labels.copy()
+    if images.shape[0] != labels.shape[0]:
+        raise ValueError(f"Number of images ({images.shape[0]}) != number of labels ({labels.shape[0]})")
+
+    # Normalize using the same mean/std as training
+    mean = 0.1307
+    std = 0.3081
+    images = (images - mean) / std
+
+    # Load CNN parameters
+    conv1_W = load_csv_matrix(f"{weights_path}/conv1_weight.csv", (6, 1, 5, 5))
+    conv1_b = load_csv_vector(f"{weights_path}/conv1_bias.csv", 6)
+    conv2_W = load_csv_matrix(f"{weights_path}/conv2_weight.csv", (16, 6, 5, 5))
+    conv2_b = load_csv_vector(f"{weights_path}/conv2_bias.csv", 16)
+    fc1_W = load_csv_matrix(f"{weights_path}/fc1_weight.csv", (120, 400))  # out x in
+    fc1_b = load_csv_vector(f"{weights_path}/fc1_bias.csv", 120)
+    fc2_W = load_csv_matrix(f"{weights_path}/fc2_weight.csv", (84, 120))
+    fc2_b = load_csv_vector(f"{weights_path}/fc2_bias.csv", 84)
+    fc3_W = load_csv_matrix(f"{weights_path}/fc3_weight.csv"ath, (10, 84))
+    fc3_b = load_csv_vector(f"{weights_path}/fc3_bias.csv", 10)
+
+    # Run inference
+    total = images.shape[0]
+    correct = 0
+    t0 = time.perf_counter()
+
+    for i in range(total):
+        image = images[i]
+        label = labels[i]
+        # logits = run_lenet5(ol: Overlay, dma_name: str, ip_name: str,
+            #    image,
+            #    scale_S: float, shift: int,
+            #    conv1_W, conv1_b,
+            #    conv2_W, conv2_b,
+            #    fc1_W, fc1_b,
+            #    fc2_W, fc2_b,
+            #    fc3_W, fc3_b)
+        # probs = softmax(logits)
+        # pred = int(np.argmax(probs))
+        # pred = argmax(logits)
+        # correct += (pred == label)
+            
+    
+
+    t1 = time.perf_counter()
+    total_time_ms = t1 - t0
+    accuracy = 100.0 * correct / total
+    avg_time_ms = total_time_ms / total
+    throughput = 1000.0 / avg_time_ms if avg_time_ms > 0 else 0.0
+
+    print("\n=== Results ===")
+    print(f"Accuracy: {accuracy:.2f}% ({correct}/{total})")
+    print(f"Average inference time: {avg_time_ms:.3f} ms")
+    print(f"Throughput: {throughput:.1f} FPS")
 
 def main():
     parser = argparse.ArgumentParser(description="LeNet-5 on Kria: Conv stages on PL via DMA, FCs on PS")
     parser.add_argument("--bitfile", type=str, required=True, help="Path to Overlay (.bit/.hwh)")
     parser.add_argument("--dma_name", type=str, default="axi_dma_0", help="DMA instance name in overlay")
     parser.add_argument("--ip_name", type=str, default="cnn_accel_0", help="Accelerator IP name in overlay")
-    parser.add_argument("--image", type=str, default=None, help="28x28 PNG for inference")
+    parser.add_argument("--images", type=str, default="t10k-images.idx3-ubyte", help="Path to t10k-images.idx3-ubyte")
+    parser.add_argument("--labels", type=str, default="t10k-labels.idx1-ubyte", help="Path to t10k-labels.idx1-ubyte")
+    parser.add_argument("--weights", type=str, default="weights_csv")
+ 
     parser.add_argument("--invert", action="store_true", help="Invert image colors before normalization")
-    parser.add_argument("--random", action="store_true", help="Use random input instead of image")
 
     # Conv stage params (defaults align to LeNet-5 modern variant)
     parser.add_argument("--conv1_pad", type=int, default=2)
     parser.add_argument("--conv1_cout", type=int, default=6)
     parser.add_argument("--pool1", type=int, choices=[POOL_NONE, POOL_MAX2x2], default=POOL_MAX2x2)
+    parser.add_argument("--conv1_w", type=str, default="weights_csv/conv1_weight.csv")
+    parser.add_argument("--conv1_b", type=str, default="weights_csv/conv1_bias.csv")
 
     parser.add_argument("--conv2_pad", type=int, default=0)
     parser.add_argument("--conv2_cout", type=int, default=16)
     parser.add_argument("--pool2", type=int, choices=[POOL_NONE, POOL_MAX2x2], default=POOL_MAX2x2)
+    parser.add_argument("--conv2_w", type=str, default="weights_csv/conv2_weight.csv")
+    parser.add_argument("--conv2_b", type=str, default="weights_csv/conv2_bias.csv")
 
     # Quantization inside the conv IP
     parser.add_argument("--scale_S", type=float, default=1.0, help="Requantization scale in conv IP")
     parser.add_argument("--shift", type=int, default=0, help="Requantization right-shift in conv IP")
 
     # FC CSVs
-    parser.add_argument("--conv1_w", type=str, required=True, help="Path to conv1_weight.csv ")
-    parser.add_argument("--conv1_b", type=str, required=True, help="Path to conv1_bias.csv ")
-    parser.add_argument("--conv2_w", type=str, required=True, help="Path to conv2_weight.csv ")
-    parser.add_argument("--conv2_b", type=str, required=True, help="Path to conv2_bias.csv ")
-    parser.add_argument("--fc1_w", type=str, required=True, help="Path to fc1_weight.csv (120x400)")
-    parser.add_argument("--fc1_b", type=str, required=True, help="Path to fc1_bias.csv (120)")
-    parser.add_argument("--fc2_w", type=str, required=True, help="Path to fc2_weight.csv (84x120)")
-    parser.add_argument("--fc2_b", type=str, required=True, help="Path to fc2_bias.csv (84)")
-    parser.add_argument("--fc3_w", type=str, required=True, help="Path to fc3_weight.csv (10x84)")
-    parser.add_argument("--fc3_b", type=str, required=True, help="Path to fc3_bias.csv (10)")
+    parser.add_argument("--fc1_w", type=str, default="weights_csv/fc1_weight.csv")
+    parser.add_argument("--fc1_b", type=str, default="weights_csv/fc1_bias.csv")
+    parser.add_argument("--fc2_w", type=str, default="weights_csv/fc2_weight.csv")
+    parser.add_argument("--fc2_b", type=str, default="weights_csv/fc2_bias.csv")
+    parser.add_argument("--fc3_w", type=str, default="weights_csv/fc3_weight.csv")
+    parser.add_argument("--fc3_b", type=str, default="weights_csv/fc3_bias.csv")
 
     args = parser.parse_args()
 
     # Load overlay
     ol = load_overlay(args.bitfile)
 
-    # Prepare input
-    if args.random:
-        img_int8 = np.random.randint(-128, 128, size=(28, 28), dtype=np.int8)
-    elif args.image:
-        img_int8 = preprocess_image_28x28(args.image, invert=args.invert, normalize=True, to_int8=True)
-    else:
-        raise ValueError("Provide --image path or use --random to generate input.")
-
-    # Run end-to-end
-    pred, probs, _ = run_lenet5(
-        ol, args.dma_name, args.ip_name,
-        img_or_random=img_int8,
-        conv1_pad=args.conv1_pad, conv1_Cout=args.conv1_cout, pool1_mode=args.pool1,
-        conv2_pad=args.conv2_pad, conv2_Cout=args.conv2_cout, pool2_mode=args.pool2,
-        scale_S=args.scale_S, shift=args.shift,
-        conv1_w_path=args.conv1_w, fconv1_b_path=args.conv1_b,
-        conv2_w_path=args.conv2_w, fconv2_b_path=args.conv2_b,
-        fc1_w_path=args.fc1_w, fc1_b_path=args.fc1_b,
-        fc2_w_path=args.fc2_w, fc2_b_path=args.fc2_b,
-        fc3_w_path=args.fc3_w, fc3_b_path=args.fc3_b
-    )
+    evaluate_idx(args.images, args.labels, args.weights)
 
 
 

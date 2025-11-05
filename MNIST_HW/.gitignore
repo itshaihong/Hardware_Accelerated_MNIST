@@ -1,5 +1,5 @@
 # Ignore build output directory
-*/build
+/build
 
 
 # Ignore object files and dependent files
@@ -7,7 +7,7 @@
 .d
 
 #Ignore logs folder and log files
-*/logs
+/logs
 .log
 
 #Ignore lock files
@@ -15,8 +15,3 @@
 
 .bin
 .pdi
-
-.repo.yaml
-.peers.ini
-
-*/MNIST_accel

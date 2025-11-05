@@ -28,6 +28,7 @@ void cnn_accel(
     int pad,               // typically 0 or 2 for LeNet
     int pool,              // 0: none, 1: maxpool 2x2
     float scale_S,         // post-accum scaling (e.g., for int8 quant)
-    int shift              // arithmetic right shift after scaling (optional)
+    int shift,              // arithmetic right shift after scaling (optional)
+    volatile int* status
 );
 }

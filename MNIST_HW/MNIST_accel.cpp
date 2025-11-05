@@ -1,5 +1,7 @@
 #include "MNIST_accel.hpp"
 
+#define MAX_OUT_SIZE 1176
+
 static inline qint8 clamp_int8(int v) {
     if (v > 127) return 127;
     if (v < -128) return -128;
@@ -61,12 +63,14 @@ void cnn_accel(
     int pad,
     int pool,
     float scale_S,
-    int shift
+    int shift,
+    volatile int* status
 ) {
 #pragma HLS INTERFACE m_axi     port=in_q   offset=slave bundle=gmem0 depth=65536
 #pragma HLS INTERFACE m_axi     port=w_q    offset=slave bundle=gmem1 depth=65536
 #pragma HLS INTERFACE m_axi     port=b_q    offset=slave bundle=gmem2 depth=1024
 #pragma HLS INTERFACE m_axi     port=out_q  offset=slave bundle=gmem3 depth=65536
+#pragma HLS INTERFACE m_axi     port=status offset=slave bundle=gmem4 depth=1
 
 #pragma HLS INTERFACE s_axilite port=in_q    bundle=control
 #pragma HLS INTERFACE s_axilite port=w_q     bundle=control
@@ -89,7 +93,7 @@ void cnn_accel(
         // Direct conv output
         for (int co = 0; co < Cout; ++co) {
 #pragma HLS LOOP_TRIPCOUNT min=1 max=32
-            for (int ho = 0; ho < Hout_conv; ++ho) {
+            for (int ho = 0; ho < Hout_conv; ++ho) { //stride = 1
                 for (int wo = 0; wo < Wout_conv; ++wo) {
 #pragma HLS PIPELINE II=1
                     qint8 y = conv5x5_pixel(in_q, w_q, b_q[co], Cin, H, W, co, ho, wo, pad, scale_S, shift);
@@ -119,5 +123,6 @@ void cnn_accel(
             }
         }
     }
+    *status = 1;
 }
 }

@@ -74,7 +74,7 @@ void cnn_accel(
 ) {
 #pragma HLS INTERFACE m_axi     port=in_q   offset=slave bundle=gmem0 depth=65536
 #pragma HLS INTERFACE m_axi     port=w_q    offset=slave bundle=gmem1 depth=65536
-#pragma HLS INTERFACE m_axi     port=b_q    offset=slave bundle=gmem2 depth=1024
+#pragma HLS INTERFACE m_axi     port=b_q    offset=slave bundle=gmem2 depth=65536
 #pragma HLS INTERFACE m_axi     port=out_q  offset=slave bundle=gmem3 depth=65536
 
 #pragma HLS INTERFACE s_axilite port=in_q    bundle=control

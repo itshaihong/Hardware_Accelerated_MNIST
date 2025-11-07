@@ -4,6 +4,7 @@ import numpy as np
 from pynq import Overlay, allocate
 from load_idx import load_mnist_images, load_mnist_labels
 import time
+import sys
 
 try:
     from PIL import Image

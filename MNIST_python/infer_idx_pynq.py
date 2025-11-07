@@ -102,6 +102,13 @@ def load_params_to_ip(ip, dma_params, w_q_int8: np.ndarray, b_q_int32: np.ndarra
     np.copyto(buf, payload)
     # Tell IP to accept params
     ip.register_map.load_params = 1
+
+    if hasattr(ip.register_map, "ap_start"):
+        ip.register_map.ap_start = 1
+    if hasattr(ip.register_map, "CTRL") and hasattr(ip.register_map.CTRL, "AP_START"):
+        ip.register_map.CTRL.AP_START = 1
+
+    buf.flush()
     dma_params.sendchannel.transfer(buf)
     dma_params.sendchannel.wait()
     # Done loading
@@ -160,7 +167,9 @@ def evaluate_idx_int8(images_path, labels_path, weights_path, overlay,
         raise RuntimeError("Please provide AXI-Lite offsets for req_m arrays or ensure register_map exposes them.")
 
     # Load parameters once via params DMAs
+    print("loading 1st layer parameter")
     load_params_to_ip(ip1, dma_c1par, w1_q, b1_q)
+    print("loading 2nd layer parameter")
     load_params_to_ip(ip2, dma_c2par, w2_q, b2_q)
 
     total   = images.shape[0]

@@ -150,8 +150,8 @@ def evaluate_idx_int8(images_path, labels_path, weights_path, overlay,
     # Example offsets (adjust!): offset_req_m1, offset_req_m2
     try:
         # If your register_map shows req_m with a base address:
-        base1 = ip1.register_map.req_m.address
-        base2 = ip2.register_map.req_m.address
+        base1 = ip1.register_map.Memory_req_m.address
+        base2 = ip2.register_map.Memory_req_m.address
         write_axilite_array(ip1, base1, REQ_M1)  # 6 entries
         write_axilite_array(ip2, base2, REQ_M2)  # 16 entries
     except Exception:
@@ -243,4 +243,3 @@ if __name__ == "__main__":
                       args.dma_act_name, args.dma_c1_params_name, args.dma_c2_params_name,
                       args.ip_c1_name, args.ip_c2_name)
 
-    

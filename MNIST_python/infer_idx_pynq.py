@@ -222,6 +222,7 @@ def evaluate_idx_int8(images_path, labels_path, weights_path, overlay,
     print(f"Throughput: {throughput:.1f} FPS")
 
 def main():
+    print("start")
     parser = argparse.ArgumentParser(description="LeNet-5 on Kria: Conv stages on PL via DMA (int8), FCs on PS")
     parser.add_argument("--bitfile", type=str, default="MNIST_1.bit", help="Path to Overlay (.bit/.hwh)")
     # Names must match your BD: one activation DMA, two params DMAs
@@ -241,3 +242,4 @@ def main():
     evaluate_idx_int8(args.images, args.labels, args.weights, overlay,
                       args.dma_act_name, args.dma_c1_params_name, args.dma_c2_params_name,
                       args.ip_c1_name, args.ip_c2_name)
+    print("end")

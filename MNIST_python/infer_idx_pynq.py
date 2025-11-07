@@ -238,6 +238,6 @@ def main():
     overlay = Overlay(args.bitfile)
     overlay.download()
 
-    evaluate_idx_int8(args.images, args.labels, args.weights, args.bitfile,
+    evaluate_idx_int8(args.images, args.labels, args.weights, overlay,
                       args.dma_act_name, args.dma_c1_params_name, args.dma_c2_params_name,
                       args.ip_c1_name, args.ip_c2_name)

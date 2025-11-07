@@ -114,6 +114,16 @@ def load_params_to_ip(ip, dma_params, w_q_int8: np.ndarray, b_q_int32: np.ndarra
     # Done loading
     ip.register_map.load_params = 0
 
+
+def progress_bar(iteration, total, width=40):
+    pct = iteration / total
+    filled = int(width * pct)
+    bar = "#" * filled + "-" * (width - filled)
+    sys.stdout.write(f"\r[{bar}] {pct*100:6.2f}% ({iteration}/{total})")
+    sys.stdout.flush()
+    if iteration == total:
+        sys.stdout.write("\n")  # newline at the end
+
 # ----- Main evaluation using int8 hardware -----
 def evaluate_idx_int8(images_path, labels_path, weights_path, overlay,
                       dma_act_name: str, dma_c1_params_name: str, dma_c2_params_name: str,
@@ -180,7 +190,9 @@ def evaluate_idx_int8(images_path, labels_path, weights_path, overlay,
     in_act_buf  = allocate(shape=(ACT1_BEATS,), dtype=np.uint32)  # image beats
     out_act_buf = allocate(shape=(OUT2_BEATS,), dtype=np.uint32)  # final output beats
 
+    print("start iteration over 1000 images")
     for i in range(total):
+        progress_bar(i, total)
         img_f = images[i]        # [1,28,28]
         label = int(labels[i])
 

@@ -203,10 +203,15 @@ def evaluate_idx_int8(images_path, labels_path, weights_path, overlay,
 
         # Send activations MM2S → conv1.act_s; receive final outputs S2MM ← conv2.out_s
         np.copyto(in_act_buf, img_beats)
+
+        in_act_buf.flush()
         dma_act.sendchannel.transfer(in_act_buf)
         dma_act.recvchannel.transfer(out_act_buf)
+        ip1.register_map.ap_start = 1
+        ip2.register_map.ap_start = 1
         dma_act.sendchannel.wait()
         dma_act.recvchannel.wait()
+        out_act_buf.invalidate()
 
         # Unpack final outputs (256 int8) and dequantize for FCs
         out2_q = unpack_u32_to_int8(out_act_buf, total_elems=OUT2_ELEMS)  # (256,) int8

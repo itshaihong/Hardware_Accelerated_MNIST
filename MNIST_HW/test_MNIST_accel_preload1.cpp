@@ -24,8 +24,8 @@ typedef ap_axiu<32,0,0,0> axis_t;
 
 // LeNet-5 Conv1 fixed sizes (must match kernel)
 constexpr int C_IN   = 1;   // from Pool1
-constexpr int H_IN   = 28;
-constexpr int W_IN   = 28;
+constexpr int H_IN   = 32;
+constexpr int W_IN   = 32;
 constexpr int C_OUT  = 6;  // Conv2 filters
 constexpr int K      = 5;
 

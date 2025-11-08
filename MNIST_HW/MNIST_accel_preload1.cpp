@@ -6,26 +6,26 @@
 
 typedef ap_axiu<32,0,0,0> axis_t;
 
-// LeNet-5 Conv1 fixed sizes
+// LeNet-5 Conv2 fixed sizes
 constexpr int C_IN   = 1;   // from Pool1
-constexpr int H_IN   = 28;
-constexpr int W_IN   = 28;
+constexpr int H_IN   = 32;
+constexpr int W_IN   = 32;
 constexpr int C_OUT  = 6;  // Conv2 filters
 constexpr int K      = 5;
 
-constexpr int H_CONV = H_IN - K + 1; // 24
-constexpr int W_CONV = W_IN - K + 1; // 24
+constexpr int H_CONV = H_IN - K + 1; // 28
+constexpr int W_CONV = W_IN - K + 1; // 28
 
 constexpr int S_POOL = 2;            // 2x2 stride 2
-constexpr int H_OUT  = H_CONV / S_POOL; // 12
-constexpr int W_OUT  = W_CONV / S_POOL; // 12
+constexpr int H_OUT  = H_CONV / S_POOL; // 14
+constexpr int W_OUT  = W_CONV / S_POOL; // 14
 
 // Element counts
-constexpr int ACT_ELEMS   = C_IN * H_IN    * W_IN;     // 784
-constexpr int W_ELEMS     = C_OUT * C_IN * K * K;      // 150
-constexpr int B_ELEMS     = C_OUT;                     // 6
-constexpr int CONV_ELEMS  = C_OUT * H_CONV * W_CONV;   // 3456
-constexpr int OUT_ELEMS   = C_OUT * H_OUT  * W_OUT;    // 864
+constexpr int ACT_ELEMS   = C_IN * H_IN    * W_IN;     // 1024
+constexpr int W_ELEMS     = C_OUT * C_IN * K * K;      // 2400
+constexpr int B_ELEMS     = C_OUT;                     // 16
+constexpr int CONV_ELEMS  = C_OUT * H_CONV * W_CONV;   // 4704
+constexpr int OUT_ELEMS   = C_OUT * H_OUT  * W_OUT;    // 1176
 
 // Index helpers
 static inline int idx_act(int c, int y, int x)          { return (c*H_IN + y)*W_IN + x; }

@@ -24,8 +24,8 @@ typedef ap_axiu<32,0,0,0> axis_t;
 
 // LeNet-5 Conv2 fixed sizes (must match kernel)
 constexpr int C_IN   = 6;
-constexpr int H_IN   = 12;
-constexpr int W_IN   = 12;
+constexpr int H_IN   = 14;
+constexpr int W_IN   = 14;
 constexpr int C_OUT  = 16;
 constexpr int K      = 5;
 

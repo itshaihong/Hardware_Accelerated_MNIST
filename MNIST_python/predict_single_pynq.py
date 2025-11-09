@@ -158,6 +158,8 @@ def evaluate_idx_int8(image, label, weights_path):
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     print(f"Prediction: {pred}, elapsed: {elapsed_ms:.3f} ms")
 
+    return pred, elapsed_ms
+
 
 
 # Open image robustly and composite transparency onto white background if needed
@@ -226,7 +228,6 @@ def predict_single(image_path,
     evaluate_idx_int8(x, 3, "weights_csv/")
 
 
-    return pred, elapsed_ms
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Predict a single 28x28 MNIST-like grayscale image with LeNet-5 (CPU)")

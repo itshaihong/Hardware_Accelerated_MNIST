@@ -155,8 +155,6 @@ def evaluate_idx_int8(image, label, weights_path):
     h2 = np.maximum(h2, 0.0)
     logits = fc3_W @ h2 + fc3_b
     pred   = int(np.argmax(logits))
-    correct += (pred == label)
-
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     print(f"Prediction: {pred}, elapsed: {elapsed_ms:.3f} ms")
 

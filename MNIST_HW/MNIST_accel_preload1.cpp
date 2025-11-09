@@ -76,7 +76,8 @@ extern "C" void conv1_preload_axis(
     static q8_t  W[W_ELEMS];
     static q32_t B[B_ELEMS];
 #pragma HLS BIND_STORAGE variable=W type=ram_1p impl=bram
-#pragma HLS BIND_STORAGE variable=B type=ram_1p impl=bram
+#pragma HLS BIND_STORAGE variable=B type=ram_2p impl=bram
+
     // On-chip buffers
     static q8_t  A[ACT_ELEMS];
     static q8_t  C[CONV_ELEMS]; // conv output (int8 after requant+ReLU)
@@ -168,7 +169,7 @@ extern "C" void conv1_preload_axis(
                     pkt.data = pack4(pack_buf[0], pack_buf[1], pack_buf[2], pack_buf[3]);
                     // Valid 4 bytes
                     pkt.keep = 0xF;
-                    pkt.strb = pkt.keep;
+                    pkt.strb = 0;
                     // Assert TLAST only on the final beat
                     pkt.last = (beats_sent == (TOTAL_BEATS - 1)) ? ap_uint<1>(1) : ap_uint<1>(0);
                     out_s.write(pkt);
@@ -196,7 +197,7 @@ extern "C" void conv1_preload_axis(
         if (pack_cnt >= 3) keep_mask |= 0x4;
         if (pack_cnt >= 4) keep_mask |= 0x8;
         pkt.keep = keep_mask;
-        pkt.strb = pkt.keep;
+        pkt.strb = 0;
 
         // Final beat: TLAST must be asserted here
         pkt.last = (beats_sent == (TOTAL_BEATS - 1)) ? ap_uint<1>(1) : ap_uint<1>(0);

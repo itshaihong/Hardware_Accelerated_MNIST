@@ -1,0 +1,18 @@
+{
+  "max_abs": 0.3069385,
+  "mode": "symmetric_int8",
+  "dtype": "int8",
+  "shape": [
+    120,
+    400
+  ],
+  "per_axis": "none",
+  "power_of_two": false,
+  "scale": [
+    413.763669269251
+  ],
+  "zero_point": [
+    0
+  ],
+  "notes": "For symmetric_int8, real \u2248 q / S. For asymmetric_uint8, real \u2248 (q - z) / S. If power_of_two is True (symmetric), S=2^n for shift-only requantization."
+}

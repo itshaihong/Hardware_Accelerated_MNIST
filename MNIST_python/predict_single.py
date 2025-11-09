@@ -53,7 +53,10 @@ def load_and_preprocess(image_path, invert=False, auto_invert=True, save_preproc
 
     mean, std = 0.1307, 0.3081
     arr_norm = (arr01 - mean) / std
+    np.savetxt('test_3_norm.csv', arr_norm, fmt="%.7g", delimiter=',')
+    print(arr_norm.shape)
     arr_norm = arr_norm[None, None, :, :]
+
     x = torch.from_numpy(arr_norm).float()
 
     print(f"Preprocess stats: min={arr01.min():.3f}, max={arr01.max():.3f}, mean={arr01.mean():.3f}")

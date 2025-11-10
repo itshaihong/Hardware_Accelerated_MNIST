@@ -216,6 +216,9 @@ def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
     print(f"Average inference time: {avg_time_ms:.3f} ms")
     print(f"Throughput: {throughput:.1f} FPS")
 
+    input_buf_conv1.close()
+    output_buf_conv1.close()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate LeNet-5 on raw idx MNIST test files (CPU)")
     parser.add_argument("--images", type=str, default="t10k-images.idx3-ubyte", help="Path to t10k-images.idx3-ubyte")

@@ -126,10 +126,11 @@ def evaluate_idx_int8(image, label, weights_path):
     #############
     # conv1 on hw
     ##############
+    image_q = np.round(image * 256).astype(np.int32) #quantization
     conv1_W_q = np.round(conv1_W_f * 256).astype(np.int32) #quantization
     conv1_b_q = np.round(conv1_b_f * 256).astype(np.int32) #quantization
-    image_padded = np.pad(image, ((0, 0), (2, 2), (2, 2)), mode='constant')
-    input_buf_conv1[:1024] = image.reshape(-1)
+    image_padded = np.pad(image_q, ((0, 0), (2, 2), (2, 2)), mode='constant')
+    input_buf_conv1[:1024] = image_padded.reshape(-1)
     input_buf_conv1[1024:1174] = conv1_W_q.reshape(-1)
     input_buf_conv1[1174:] = conv1_b_q.reshape(-1)
 

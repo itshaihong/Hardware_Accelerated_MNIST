@@ -14,8 +14,8 @@ ol = Overlay(OVERLAY_PATH)
 dma0 = getattr(ol, DMA0_NAME) 
 
 
-input_buf_fc1 = allocate(shape=(400 + 400*120,), dtype=np.int32)
-output_buf_fc1 = allocate(shape=(120,), dtype=np.int32)
+# input_buf_fc1 = allocate(shape=(400 + 400*120,), dtype=np.int32)
+# output_buf_fc1 = allocate(shape=(120,), dtype=np.int32)
 
 input_buf_conv1 = allocate(shape=(1180,), dtype=np.int32)
 output_buf_conv1 = allocate(shape=(1176,), dtype=np.int32)
@@ -216,8 +216,8 @@ def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
     print(f"Average inference time: {avg_time_ms:.3f} ms")
     print(f"Throughput: {throughput:.1f} FPS")
 
-    input_buf_conv1.close()
-    output_buf_conv1.close()
+    input_buf_conv1.freebuffer()
+    output_buf_conv1.freebuffer()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate LeNet-5 on raw idx MNIST test files (CPU)")

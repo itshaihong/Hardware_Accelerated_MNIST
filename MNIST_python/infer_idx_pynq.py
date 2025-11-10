@@ -117,9 +117,6 @@ def lenet5_layer2_conv_maxpool(x, filters, bias=None):
 
 # Evaluate saved LeNet-5 model on raw idx test files (CPU)
 def evaluate_idx(images_path, labels_path, weights_path='weights_csv/'):
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found: {model_path}")
-
     # Load idx data
     images = load_mnist_images(images_path)  # shape [N,1,28,28] in [0,1]
     labels = load_mnist_labels(labels_path)  # shape [N]
@@ -163,13 +160,13 @@ def evaluate_idx(images_path, labels_path, weights_path='weights_csv/'):
 
 
     # Run inference
-    total = X.shape[0]
+    total = images.shape[0]
     correct = 0
     total_time_ms = 0.0
 
     # Print stats for first K samples
     print(f"Loaded {total} test images from idx files")
-    for i in range(total):
+    for i in range(100):
         image_q = np.round(images[i] * 256).astype(np.int32) #quantization
         image_padded = np.pad(image_q, ((0, 0), (2, 2), (2, 2)), mode='constant')
         input_buf_conv1[:1024] = image_padded.reshape(-1)
@@ -208,8 +205,8 @@ def evaluate_idx(images_path, labels_path, weights_path='weights_csv/'):
 
         if (i < 10):
             print(f"Image {i}: Prediction: {pred}, True Label: {labels[i]}")
-        if pred[i] == label[i]:
-            correct++
+        if pred == labels[i]:
+            correct = correct + 1
 
     accuracy = 100.0 * correct / total
     avg_time_ms = total_time_ms / total
@@ -224,8 +221,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate LeNet-5 on raw idx MNIST test files (CPU)")
     parser.add_argument("--images", type=str, default="t10k-images.idx3-ubyte", help="Path to t10k-images.idx3-ubyte")
     parser.add_argument("--labels", type=str, default="t10k-labels.idx1-ubyte", help="Path to t10k-labels.idx1-ubyte")
-    parser.add_argument("--model", type=str, default="weights/lenet5.pth", help="Path to saved model .pth")
-    parser.add_argument("--batch_size", type=int, default=1000, help="Batch size for inference")
     args = parser.parse_args()
 
-    evaluate_idx(args.images, args.labels, model_path=args.model)
+    evaluate_idx(args.images, args.labels)

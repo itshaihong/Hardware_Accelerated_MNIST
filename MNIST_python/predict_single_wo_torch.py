@@ -137,9 +137,6 @@ def evaluate_idx_int8(image, label, weights_path):
 
     flat = c2.reshape(-1) 
 
-    # transfer to dma for compute
-
-
     h1 = fc1_W @ flat + fc1_b
     h1 = np.maximum(h1, 0.0)
 

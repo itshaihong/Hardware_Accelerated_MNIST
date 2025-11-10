@@ -10,7 +10,7 @@ from PIL import Image, ImageOps
 
 
 
-OVERLAY_PATH = "fc1.bit" 
+OVERLAY_PATH = "conv1.bit" 
 DMA0_NAME = "axi_dma_0"  
 ol = Overlay(OVERLAY_PATH)
 dma0 = getattr(ol, DMA0_NAME) 
@@ -18,6 +18,9 @@ dma0 = getattr(ol, DMA0_NAME)
 
 input_buf_fc1 = allocate(shape=(400 + 400*120,), dtype=np.int32)
 output_buf_fc1 = allocate(shape=(120,), dtype=np.int32)
+
+input_buf_conv1 = allocate(shape=(1180,), dtype=np.int32)
+output_buf_conv1 = allocate(shape=(1176,), dtype=np.int32)
 
 
 
@@ -119,15 +122,28 @@ def evaluate_idx_int8(image, label, weights_path):
     # Load float weights/bias (CSV)
     conv1_W_f = np.loadtxt(f"{weights_path}/conv1_weight.csv", delimiter=',', dtype=np.float32).reshape(6, 1, 5, 5)
     conv1_b_f = np.loadtxt(f"{weights_path}/conv1_bias.csv",   delimiter=',', dtype=np.float32).reshape(6)
+
+    #############
+    # conv1 on hw
+    ##############
+    conv1_W_q = np.round(conv1_W_f * 256).astype(np.int32) #quantization
+    conv1_b_q = np.round(conv1_b_f * 256).astype(np.int32) #quantization
+    image_padded = np.pad(image, ((0, 0), (2, 2), (2, 2)), mode='constant')
+    input_buf_conv1[:1024] = image.reshape(-1)
+    input_buf_conv1[1024:1174] = conv1_W_q.reshape(-1)
+    input_buf_conv1[1174:] = conv1_b_q.reshape(-1)
+
     conv2_W_f = np.loadtxt(f"{weights_path}/conv2_weight.csv", delimiter=',', dtype=np.float32).reshape(16, 6, 5, 5)
     conv2_b_f = np.loadtxt(f"{weights_path}/conv2_bias.csv",   delimiter=',', dtype=np.float32).reshape(16)
 
     fc1_W = np.loadtxt(f"{weights_path}/fc1_weight.csv", delimiter=',', dtype=np.float32).reshape(120, 400)
     fc1_b = np.loadtxt(f"{weights_path}/fc1_bias.csv",   delimiter=',', dtype=np.float32).reshape(120)
     fc1_W_q = np.round(fc1_W * 256).astype(np.int32) #quantization
-        # Populate input buffers A then B
-    num_w = 120 * 400
-    input_buf_fc1[:num_w] = fc1_W_q.reshape(-1)
+    ###############
+    # fc1 on hw
+    ###############
+    # num_w = 120 * 400
+    # input_buf_fc1[:num_w] = fc1_W_q.reshape(-1)
     
 
     fc2_W = np.loadtxt(f"{weights_path}/fc2_weight.csv", delimiter=',', dtype=np.float32).reshape(84, 120)
@@ -137,19 +153,29 @@ def evaluate_idx_int8(image, label, weights_path):
 
     t0 = time.perf_counter()
 
-    c1 = lenet5_layer1_conv_maxpool(image, conv1_W_f, conv1_b_f)
+    #############
+    # conv1 on hw
+    ##############
+    dma0_transfer(input_buf_conv1, output_buf_conv1)
+    c1 = output_buf_conv1.astype(np.float32) / 256.0  # dequantize
+    # c1 = lenet5_layer1_conv_maxpool(image, conv1_W_f, conv1_b_f)
+
+
     c2 = lenet5_layer2_conv_maxpool(c1, conv2_W_f, conv2_b_f)
-
     flat = c2.reshape(-1) 
-    flat_q  = np.round(flat  * 256).astype(np.int32) #quantization   
-    input_buf_fc1[num_w:num_w + 400] = flat_q  # flat_q must be length 400
+    ###############
+    # fc1 on hw
+    ###############
+    # flat_q  = np.round(flat  * 256).astype(np.int32) #quantization   
+    # input_buf_fc1[num_w:num_w + 400] = flat_q  # flat_q must be length 400
+    # dma0_transfer(input_buf_fc1, output_buf_fc1)
+    # h1 = output_buf_fc1.astype(np.float32) / 256.0  # dequantize
+    # h1 = h1 + fc1_b
+    # h1 = np.maximum(h1, 0.0)
 
-    # transfer to dma for compute
-
-    dma0_transfer(input_buf_fc1, output_buf_fc1)
-    h1 = output_buf_fc1.astype(np.float32) / 256.0  # dequantize
-    h1 = h1 + fc1_b
+    h1 = fc1_W @ flat + fc1_b
     h1 = np.maximum(h1, 0.0)
+
 
 
     h2 = fc2_W @ h1 + fc2_b

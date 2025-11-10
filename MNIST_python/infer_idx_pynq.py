@@ -116,7 +116,7 @@ def lenet5_layer2_conv_maxpool(x, filters, bias=None):
 
 
 # Evaluate saved LeNet-5 model on raw idx test files (CPU)
-def evaluate_idx(images_path, labels_path, weights_path='weights_csv/'):
+def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
     # Load idx data
     images = load_mnist_images(images_path)  # shape [N,1,28,28] in [0,1]
     labels = load_mnist_labels(labels_path)  # shape [N]
@@ -160,13 +160,12 @@ def evaluate_idx(images_path, labels_path, weights_path='weights_csv/'):
 
 
     # Run inference
-    total = images.shape[0]
     correct = 0
     total_time_ms = 0.0
 
     # Print stats for first K samples
     print(f"Loaded {total} test images from idx files")
-    for i in range(100):
+    for i in range(total):
         image_q = np.round(images[i] * 256).astype(np.int32) #quantization
         image_padded = np.pad(image_q, ((0, 0), (2, 2), (2, 2)), mode='constant')
         input_buf_conv1[:1024] = image_padded.reshape(-1)
@@ -223,4 +222,4 @@ if __name__ == "__main__":
     parser.add_argument("--labels", type=str, default="t10k-labels.idx1-ubyte", help="Path to t10k-labels.idx1-ubyte")
     args = parser.parse_args()
 
-    evaluate_idx(args.images, args.labels)
+    evaluate_idx(100, args.images, args.labels)

@@ -1,13 +1,11 @@
-# lenet5_kria_pynq_int8.py
-from pynq import Overlay, allocate
-import time
-import sys
 import os
 import time
 import argparse
 import numpy as np
-from PIL import Image, ImageOps
-
+import torch
+from lenet5 import LeNet5
+from load_idx import load_mnist_images, load_mnist_labels
+from pynq import Overlay, allocate
 
 
 OVERLAY_PATH = "conv1.bit" 
@@ -116,8 +114,20 @@ def lenet5_layer2_conv_maxpool(x, filters, bias=None):
     return pooled
 
 
-# ----- Main evaluation using int8 hardware -----
-def evaluate_idx_int8(image, label, weights_path):
+
+# Evaluate saved LeNet-5 model on raw idx test files (CPU)
+def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
+    # Load idx data
+    images = load_mnist_images(images_path)  # shape [N,1,28,28] in [0,1]
+    labels = load_mnist_labels(labels_path)  # shape [N]
+    labels = labels.copy()
+    if images.shape[0] != labels.shape[0]:
+        raise ValueError(f"Number of images ({images.shape[0]}) != number of labels ({labels.shape[0]})")
+
+    # Normalize using the same mean/std as training
+    mean = 0.1307
+    std = 0.3081
+    images = (images - mean) / std
 
     # Load float weights/bias (CSV)
     conv1_W_f = np.loadtxt(f"{weights_path}/conv1_weight.csv", delimiter=',', dtype=np.float32).reshape(6, 1, 5, 5)
@@ -126,11 +136,8 @@ def evaluate_idx_int8(image, label, weights_path):
     #############
     # conv1 on hw
     ##############
-    image_q = np.round(image * 256).astype(np.int32) #quantization
     conv1_W_q = np.round(conv1_W_f * 256).astype(np.int32) #quantization
     conv1_b_q = np.round(conv1_b_f * 256).astype(np.int32) #quantization
-    image_padded = np.pad(image_q, ((0, 0), (2, 2), (2, 2)), mode='constant')
-    input_buf_conv1[:1024] = image_padded.reshape(-1)
     input_buf_conv1[1024:1174] = conv1_W_q.reshape(-1)
     input_buf_conv1[1174:] = conv1_b_q.reshape(-1)
 
@@ -145,135 +152,74 @@ def evaluate_idx_int8(image, label, weights_path):
     ###############
     # num_w = 120 * 400
     # input_buf_fc1[:num_w] = fc1_W_q.reshape(-1)
-    
 
     fc2_W = np.loadtxt(f"{weights_path}/fc2_weight.csv", delimiter=',', dtype=np.float32).reshape(84, 120)
     fc2_b = np.loadtxt(f"{weights_path}/fc2_bias.csv",   delimiter=',', dtype=np.float32).reshape(84)
     fc3_W = np.loadtxt(f"{weights_path}/fc3_weight.csv", delimiter=',', dtype=np.float32).reshape(10, 84)
     fc3_b = np.loadtxt(f"{weights_path}/fc3_bias.csv",   delimiter=',', dtype=np.float32).reshape(10)
 
-    t0 = time.perf_counter()
 
-    #############
-    # conv1 on hw
-    ##############
-    dma0_transfer(input_buf_conv1, output_buf_conv1)
-    c1 = output_buf_conv1.astype(np.float32) / 256.0  # dequantize
-    c1 = c1.reshape((6, 14, 14))
-    # c1 = lenet5_layer1_conv_maxpool(image, conv1_W_f, conv1_b_f)
+    # Run inference
+    correct = 0
+    total_time_ms = 0.0
 
+    # Print stats for first K samples
+    print(f"Loaded {total} test images from idx files")
+    for i in range(total):
+        image_q = np.round(images[i] * 256).astype(np.int32) #quantization
+        image_padded = np.pad(image_q, ((0, 0), (2, 2), (2, 2)), mode='constant')
+        input_buf_conv1[:1024] = image_padded.reshape(-1)
 
-    c2 = lenet5_layer2_conv_maxpool(c1, conv2_W_f, conv2_b_f)
-    flat = c2.reshape(-1) 
-    ###############
-    # fc1 on hw
-    ###############
-    # flat_q  = np.round(flat  * 256).astype(np.int32) #quantization   
-    # input_buf_fc1[num_w:num_w + 400] = flat_q  # flat_q must be length 400
-    # dma0_transfer(input_buf_fc1, output_buf_fc1)
-    # h1 = output_buf_fc1.astype(np.float32) / 256.0  # dequantize
-    # h1 = h1 + fc1_b
-    # h1 = np.maximum(h1, 0.0)
+        t0 = time.perf_counter()
+        #############
+        # conv1 on hw
+        ##############
+        # dma0_transfer(input_buf_conv1, output_buf_conv1)
+        # c1 = output_buf_conv1.astype(np.float32) / 256.0  # dequantize
+        # c1 = c1.reshape((6, 14, 14))
+        c1 = lenet5_layer1_conv_maxpool(image, conv1_W_f, conv1_b_f)
 
-    h1 = fc1_W @ flat + fc1_b
-    h1 = np.maximum(h1, 0.0)
+        c2 = lenet5_layer2_conv_maxpool(c1, conv2_W_f, conv2_b_f)
+        flat = c2.reshape(-1) 
+        ###############
+        # fc1 on hw
+        ###############
+        # flat_q  = np.round(flat  * 256).astype(np.int32) #quantization   
+        # input_buf_fc1[num_w:num_w + 400] = flat_q  # flat_q must be length 400
+        # dma0_transfer(input_buf_fc1, output_buf_fc1)
+        # h1 = output_buf_fc1.astype(np.float32) / 256.0  # dequantize
+        # h1 = h1 + fc1_b
+        # h1 = np.maximum(h1, 0.0)
 
+        h1 = fc1_W @ flat + fc1_b
+        h1 = np.maximum(h1, 0.0)
 
+        h2 = fc2_W @ h1 + fc2_b
+        h2 = np.maximum(h2, 0.0)
+        logits = fc3_W @ h2 + fc3_b
+        t1 = time.perf_counter()
 
-    h2 = fc2_W @ h1 + fc2_b
-    h2 = np.maximum(h2, 0.0)
-    logits = fc3_W @ h2 + fc3_b
-    t1 = time.perf_counter()
-    pred   = int(np.argmax(logits))
+        pred  = int(np.argmax(logits))
+        total_time_ms += (t1 - t0) * 1000.0
 
-    elapsed_ms = (t1 - t0) * 1000.0
-    print(f"Prediction: {pred}, elapsed: {elapsed_ms:.3f} ms")
+        if (i < 10):
+            print(f"Image {i}: Prediction: {pred}, True Label: {labels[i]}")
+        if pred == labels[i]:
+            correct = correct + 1
 
-    return pred, elapsed_ms
+    accuracy = 100.0 * correct / total
+    avg_time_ms = total_time_ms / total
+    throughput = 1000.0 / avg_time_ms if avg_time_ms > 0 else 0.0
 
-
-
-# Open image robustly and composite transparency onto white background if needed
-def open_grayscale_robust(image_path):
-    img = Image.open(image_path)
-    if img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[-1])
-        img = bg.convert("L")
-    elif img.mode == "LA":
-        l, a = img.split()
-        bg = Image.new("L", img.size, 255)
-        bg.paste(l, mask=a)
-        img = bg
-    elif img.mode == "P":
-        img = img.convert("RGBA")
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[-1])
-        img = bg.convert("L")
-    else:
-        img = img.convert("L")
-    return img
-
-# Preprocess: ensure 28x28, optional invert, normalize as training
-def load_and_preprocess(image_path, invert=False, auto_invert=True, save_preprocessed=None):
-    img = open_grayscale_robust(image_path)
-
-    if img.size != (28, 28):
-        img = img.resize((28, 28), resample=Image.BILINEAR)
-
-    arr01 = np.array(img).astype(np.float32) / 255.0
-
-    if auto_invert and not invert:
-        mean_intensity = float(arr01.mean())
-        if mean_intensity > 0.5:
-            img = ImageOps.invert(img)
-            arr01 = 1.0 - arr01
-
-    if invert and not auto_invert:
-        img = ImageOps.invert(img)
-        arr01 = 1.0 - arr01
-
-    if save_preprocessed:
-        os.makedirs(os.path.dirname(save_preprocessed) or ".", exist_ok=True)
-        img.save(save_preprocessed)
-
-    mean, std = 0.1307, 0.3081
-    arr_norm = (arr01 - mean) / std
-    np.savetxt('test_3_norm.csv', arr_norm, fmt="%.7g", delimiter=',')
-
-    # print(f"Preprocess stats: min={arr01.min():.3f}, max={arr01.max():.3f}, mean={arr01.mean():.3f}")
-    return arr_norm[np.newaxis, :, :] 
-
-def predict_single(image_path,
-                   invert=False, auto_invert=True,
-                   save_preprocessed=None, topk=3):
-
-    x = load_and_preprocess(
-        image_path,
-        invert=invert,
-        auto_invert=auto_invert,
-        save_preprocessed=save_preprocessed
-    )
-
-
-    evaluate_idx_int8(x, 3, "weights_csv/")
-
-
+    print("\n=== Results ===")
+    print(f"Accuracy: {accuracy:.2f}% ({correct}/{total})")
+    print(f"Average inference time: {avg_time_ms:.3f} ms")
+    print(f"Throughput: {throughput:.1f} FPS")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Predict a single 28x28 MNIST-like grayscale image with LeNet-5 (CPU)")
-    parser.add_argument("--image", default="test_3.png", type=str, required=True, help="Path to a 28x28 grayscale PNG/JPG")
-    parser.add_argument("--invert", action="store_true", help="Force invert (white background -> black background)")
-    parser.add_argument("--no_auto_invert", action="store_true", help="Disable auto-invert by mean intensity")
-    parser.add_argument("--save_preprocessed", type=str, default="", help="Optional path to save the preprocessed 28x28 image")
-    parser.add_argument("--topk", type=int, default=3, help="Show top-K probabilities")
+    parser = argparse.ArgumentParser(description="Evaluate LeNet-5 on raw idx MNIST test files (CPU)")
+    parser.add_argument("--images", type=str, default="t10k-images.idx3-ubyte", help="Path to t10k-images.idx3-ubyte")
+    parser.add_argument("--labels", type=str, default="t10k-labels.idx1-ubyte", help="Path to t10k-labels.idx1-ubyte")
     args = parser.parse_args()
 
-    predict_single(
-        image_path=args.image,
-        invert=args.invert,
-        auto_invert=(not args.no_auto_invert),
-        save_preprocessed=(args.save_preprocessed if args.save_preprocessed else None),
-        topk=args.topk
-    )
-
+    evaluate_idx(100, args.images, args.labels)

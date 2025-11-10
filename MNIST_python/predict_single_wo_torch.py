@@ -144,7 +144,8 @@ def evaluate_idx_int8(image, label, weights_path):
     h2 = np.maximum(h2, 0.0)
     logits = fc3_W @ h2 + fc3_b
     pred   = int(np.argmax(logits))
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    t1 = perf_counter()
+    elapsed_ms = (t1 - t0) * 1000.0
     print(f"Prediction: {pred}, elapsed: {elapsed_ms:.3f} ms")
 
     return pred, elapsed_ms
@@ -199,7 +200,7 @@ def load_and_preprocess(image_path, invert=False, auto_invert=True, save_preproc
     arr_norm = (arr01 - mean) / std
     np.savetxt('test_3_norm.csv', arr_norm, fmt="%.7g", delimiter=',')
 
-    print(f"Preprocess stats: min={arr01.min():.3f}, max={arr01.max():.3f}, mean={arr01.mean():.3f}")
+    # print(f"Preprocess stats: min={arr01.min():.3f}, max={arr01.max():.3f}, mean={arr01.mean():.3f}")
     return arr_norm[np.newaxis, :, :] 
 
 def predict_single(image_path,

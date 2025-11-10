@@ -159,6 +159,7 @@ def evaluate_idx_int8(image, label, weights_path):
     ##############
     dma0_transfer(input_buf_conv1, output_buf_conv1)
     c1 = output_buf_conv1.astype(np.float32) / 256.0  # dequantize
+    c1 = c1.reshape((6, 14, 14))
     # c1 = lenet5_layer1_conv_maxpool(image, conv1_W_f, conv1_b_f)
 
 

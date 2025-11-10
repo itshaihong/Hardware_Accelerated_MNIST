@@ -69,8 +69,8 @@ extern "C" void conv1_preload_axis(
 #pragma HLS INTERFACE s_axilite port=req_m       bundle=control
 #pragma HLS INTERFACE s_axilite port=return      bundle=control
 
-#pragma HLS BIND_OP op=mul impl=DSP
-#pragma HLS ALLOCATION operation instances=mul limit=512
+// #pragma HLS BIND_OP op=mul impl=DSP
+// #pragma HLS ALLOCATION operation instances=mul limit=512
 
     // On-chip persistent parameter storage
     static q8_t  W[W_ELEMS];
@@ -147,7 +147,7 @@ extern "C" void conv1_preload_axis(
     // 3) MaxPool 2×2 stride 2 and stream out (pack 4 int8 per beat)
     //    Enforce TLAST only on the very final beat.
     const int TOTAL_BEATS = (OUT_ELEMS + 3) / 4;
-    int beats_sent = 0;
+    int  beat_idx = 0;
 
     q8_t pack_buf[4];
     int   pack_cnt = 0;
@@ -171,10 +171,10 @@ extern "C" void conv1_preload_axis(
                     pkt.keep = 0xF;
                     pkt.strb = 0;
                     // Assert TLAST only on the final beat
-                    pkt.last = (beats_sent == (TOTAL_BEATS - 1)) ? ap_uint<1>(1) : ap_uint<1>(0);
+                    pkt.last = (beat_idx == TOTAL_BEATS - 1);
                     out_s.write(pkt);
-                    beats_sent++;
                     pack_cnt = 0;
+                    beat_idx++;
                 }
             }
         }

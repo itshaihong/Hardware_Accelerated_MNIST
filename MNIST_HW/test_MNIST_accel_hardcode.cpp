@@ -9,12 +9,11 @@
 #include <cstdint>
 #include <cstring>
 
-using data_t = float;
-typedef ap_axiu<32,0,0,0> axis_t;
+typedef ap_axis<32,0,0,0> axis_t;
 
 constexpr int C_IN = 1;
-constexpr int H_IN = 28;
-constexpr int W_IN = 28;
+constexpr int H_IN = 32;
+constexpr int W_IN = 32;
 
 constexpr int C1_OUT = 6;
 constexpr int K      = 5;
@@ -39,44 +38,33 @@ static inline int idx_c1 (int co, int y, int x)           { return (co*H1 + y)*W
 static inline int idx_p1 (int co, int y, int x)           { return (co*H1P + y)*W1P + x; }
 
 
-static inline ap_uint<32> f2u(float f) {
-    uint32_t tmp;
-    ::memcpy(&tmp, &f, sizeof(tmp));
-    return ap_uint<32>(tmp); // ap_uint has a constructor from integral types
-}
-
-static inline float u2f(ap_uint<32> u) {
-    uint32_t tmp = static_cast<uint32_t>(u); // extract bits to plain integer
-    float f;
-    ::memcpy(&f, &tmp, sizeof(f));
-    return f;
-}
-
-extern "C" void lenet_conv1_relu_pool_axis(hls::stream<axis_t>& in_s,
+void conv1_hardcode(hls::stream<axis_t>& in_s,
                                            hls::stream<axis_t>& out_s);
 
 // Reference software (same algorithm)
-void reference_conv1_relu_pool(const std::vector<data_t>& img,
-                               const std::vector<data_t>& w,
-                               const std::vector<data_t>& b,
-                               std::vector<data_t>& out)
+void reference_conv1_relu_pool(const std::vector<int>& img,
+                               const std::vector<int>& w,
+                               const std::vector<int>& b,
+                               std::vector<int>& out)
 {
-    std::vector<data_t> conv(CONV_ELEMS);
+    std::vector<int> conv(CONV_ELEMS);
     // Conv + ReLU
     for (int y = 0; y < H1; ++y) {
         for (int x = 0; x < W1; ++x) {
             for (int co = 0; co < C1_OUT; ++co) {
-                data_t acc = b[co];
+                int acc = 0;
                 for (int ci = 0; ci < C_IN; ++ci) {
                     for (int ky = 0; ky < K; ++ky) {
                         for (int kx = 0; kx < K; ++kx) {
-                            data_t vin = img[idx_img(ci, y + ky, x + kx)];
-                            data_t wgt = w[idx_w(co, ci, ky, kx)];
-                            acc += vin * wgt;
+                            int vin = img[idx_img(ci, y + ky, x + kx)];
+                            int wgt = w[idx_w(co, ci, ky, kx)];
+                            acc += (vin * wgt);
                         }
                     }
                 }
-                if (acc < (data_t)0) acc = (data_t)0;
+                acc = acc >> 8;
+                acc = acc + b[co];
+                if (acc < (int)0) acc = (int)0;
                 conv[idx_c1(co, y, x)] = acc;
             }
         }
@@ -86,8 +74,8 @@ void reference_conv1_relu_pool(const std::vector<data_t>& img,
         for (int x = 0; x < W1P; ++x) {
             for (int co = 0; co < C1_OUT; ++co) {
                 int y0 = y * S_POOL, x0 = x * S_POOL;
-                data_t m = conv[idx_c1(co, y0,     x0    )];
-                data_t t = conv[idx_c1(co, y0,     x0 + 1)];
+                int m = conv[idx_c1(co, y0,     x0    )];
+                int t = conv[idx_c1(co, y0,     x0 + 1)];
                 if (t > m) m = t;
                 t =        conv[idx_c1(co, y0 + 1, x0    )];
                 if (t > m) m = t;
@@ -103,17 +91,17 @@ void reference_conv1_relu_pool(const std::vector<data_t>& img,
 
 int main() {
     // Prepare deterministic inputs
-    std::vector<data_t> img(IMG_ELEMS);
-    std::vector<data_t> w(W_ELEMS);
-    std::vector<data_t> b(B_ELEMS);
-    for (int i = 0; i < IMG_ELEMS; ++i) img[i] = ((i % 13) - 6) * 0.05f;
-    for (int i = 0; i < W_ELEMS;   ++i) w[i]   = ((i % 7)  - 3) * 0.02f;
-    for (int i = 0; i < B_ELEMS;   ++i) b[i]   = 0.01f * (i % 5);
+    std::vector<int> img(IMG_ELEMS);
+    std::vector<int> w(W_ELEMS);
+    std::vector<int> b(B_ELEMS);
+    for (int i = 0; i < IMG_ELEMS; ++i) img[i] = i % 32;
+    for (int i = 0; i < W_ELEMS;   ++i) w[i]   = 5;
+    for (int i = 0; i < B_ELEMS;   ++i) b[i]   = 1;
 
     
 
     // Build payload = IMG | W | B
-    std::vector<data_t> payload;
+    std::vector<int> payload;
     payload.reserve(IN_TOTAL);
     payload.insert(payload.end(), img.begin(), img.end());
     payload.insert(payload.end(), w.begin(),  w.end());
@@ -125,24 +113,24 @@ int main() {
     // Drive input stream (TLAST on final beat)
     for (int i = 0; i < IN_TOTAL; ++i) {
         axis_t pkt{};
-        pkt.data = f2u(payload[i]);
+        pkt.data = payload[i];
         pkt.keep = -1;      // all bytes valid for 32-bit
         pkt.last = (i == IN_TOTAL - 1) ? 1 : 0;
         in_s.write(pkt);
     }
 
     // Call kernel
-    lenet_conv1_relu_pool_axis(in_s, out_s);
+    conv1_hardcode(in_s, out_s);
 
     // Read outputs (expect OUT_ELEMS = 864), TLAST on last beat
-    std::vector<data_t> out_hw(OUT_ELEMS);
+    std::vector<int> out_hw(OUT_ELEMS);
     for (int i = 0; i < OUT_ELEMS; ++i) {
         if (out_s.empty()) {
             std::cerr << "ERROR: output underrun at i=" << i << "\n";
             return 1;
         }
         axis_t pkt = out_s.read();
-        out_hw[i] = u2f(pkt.data);
+        out_hw[i] = pkt.data;
         if ((i == OUT_ELEMS - 1 && pkt.last != 1) ||
             (i != OUT_ELEMS - 1 && pkt.last == 1)) {
             std::cerr << "ERROR: TLAST protocol violation at i=" << i << "\n";
@@ -151,7 +139,7 @@ int main() {
     }
 
     // Software reference and compare
-    std::vector<data_t> out_ref(OUT_ELEMS, 0);
+    std::vector<int> out_ref(OUT_ELEMS, 0);
     reference_conv1_relu_pool(img, w, b, out_ref);
 
     int mismatches = 0;
@@ -160,6 +148,11 @@ int main() {
         float a = out_hw[i];
         float r = out_ref[i];
         float diff = std::fabs(a - r);
+        if (i<=256){
+                            std::cout << "at " << i
+                          << ": hw=" << a << " ref=" << r
+                          << " diff=" << diff << "\n";
+        }
         if (diff > tol || !std::isfinite(a) || !std::isfinite(r)) {
             if (++mismatches <= 20) {
                 std::cout << "Mismatch at " << i

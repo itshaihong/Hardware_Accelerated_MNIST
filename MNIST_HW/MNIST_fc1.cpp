@@ -47,7 +47,8 @@ void fc1(hls::stream<AXIS>& S_AXIS, hls::stream<AXIS>& M_AXIS){
     for(int i = 0; i < ROWS_A; i++){
         int sum = 0;
         for(int j = 0; j < COLS_A; j++){
-#pragma PIPELINE II=1 
+// #pragma PIPELINE II=1 
+#pragma HLS UNROLL factor=8
 
             sum += A[i][j] * B[j];
         }

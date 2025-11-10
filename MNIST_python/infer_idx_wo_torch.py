@@ -134,7 +134,7 @@ def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
 
         t0 = time.perf_counter()
 
-        c1 = lenet5_layer1_conv_maxpool(image[i], conv1_W_f, conv1_b_f)
+        c1 = lenet5_layer1_conv_maxpool(images[i], conv1_W_f, conv1_b_f)
         c2 = lenet5_layer2_conv_maxpool(c1, conv2_W_f, conv2_b_f)
         flat = c2.reshape(-1) 
 

@@ -231,7 +231,6 @@ int main() {
     if (fc3_w.size() != 10u*84u) { std::cerr << "fc3_w size mismatch\n"; return 1; }
 
     size_t correct = 0;
-    auto t0 = std::chrono::high_resolution_clock::now();
 
     // Buffers reused across images to reduce allocations
     std::vector<float> x0(1*28*28);
@@ -241,6 +240,8 @@ int main() {
         // Load one image into x0 [C=1,H=28,W=28]
         const float* src = &images[(size_t)i * 28 * 28];
         std::memcpy(x0.data(), src, 28u * 28u * sizeof(float));
+
+        auto t0 = std::chrono::high_resolution_clock::now();
 
         // conv1: [1,28,28] + 6 filters 5x5, pad=2, ReLU -> [6,28,28]
         conv2d(x0, /*C_in=*/1, /*H=*/28, /*W=*/28,
@@ -278,16 +279,21 @@ int main() {
         // fc3: 84 -> 10 (logits)
         linear(y2, fc3_w, fc3_b, /*out_features=*/10, logits);
 
+        auto t1 = std::chrono::high_resolution_clock::now();
+
         // argmax
         int pred = int(std::max_element(logits.begin(), logits.end()) - logits.begin());
         if (pred == int(labels[i])) ++correct;
+
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        total_ms += ms;
+        if (i < 10) {
+            std::cout << "Image " << i << ": Prediction: " << pred << ", True Label: " << (int)labels[i] << std::endl;
+        }
     }
 
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double secs = std::chrono::duration<double>(t1 - t0).count();
-    double fps = double(num_images) / secs;
-    double avg_ms = (secs * 1000.0) / double(num_images);
-
+    double avg_ms = total_ms / num_images;
+    double fps = 1000.0 / avg_ms;
     std::cout << "\n=== Results (Pure C++ CPU) ===\n";
     std::cout << "Accuracy: " << (100.0 * correct / num_images) << "% (" << correct << "/" << num_images << ")\n";
     std::cout << "Average inference time: " << avg_ms << " ms\n";

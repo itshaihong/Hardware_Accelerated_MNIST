@@ -8,7 +8,7 @@ from load_idx import load_mnist_images, load_mnist_labels
 from pynq import Overlay, allocate
 
 
-OVERLAY_PATH = "conv1_fc_1.bit" 
+OVERLAY_PATH = "conv1_fc1.bit" 
 DMA0_NAME = "axi_dma_0"  
 DMA1_NAME = "axi_dma_1"
 ol = Overlay(OVERLAY_PATH)

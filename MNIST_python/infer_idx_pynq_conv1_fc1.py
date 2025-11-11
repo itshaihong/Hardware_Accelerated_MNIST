@@ -195,7 +195,7 @@ def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
         ###############
         flat_q  = np.round(flat  * 256).astype(np.int32) #quantization   
         input_buf_fc1[num_w:num_w + 400] = flat_q  # flat_q must be length 400
-        dma0_transfer(input_buf_fc1, output_buf_fc1)
+        dma1_transfer(input_buf_fc1, output_buf_fc1)
         h1 = output_buf_fc1.astype(np.float32) / 256.0  # dequantize
         h1 = h1 + fc1_b
         h1 = np.maximum(h1, 0.0)

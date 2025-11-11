@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 OVERLAY_PATH = "conv1_fc1.bit" 
 DMA0_NAME = "axi_dma_0"
-DMA0_NAME = "axi_dma_1"   
+DMA1_NAME = "axi_dma_1"   
 ol = Overlay(OVERLAY_PATH)
 dma0 = getattr(ol, DMA0_NAME)
 dma1 = getattr(ol, DMA1_NAME) 
@@ -285,4 +285,9 @@ if __name__ == "__main__":
         save_preprocessed=(args.save_preprocessed if args.save_preprocessed else None),
         topk=args.topk
     )
+
+    input_buf_conv1.freebuffer()
+    output_buf_conv1.freebuffer()
+    input_buf_fc1.freebuffer()
+    output_buf_fc1.freebuffer()
 

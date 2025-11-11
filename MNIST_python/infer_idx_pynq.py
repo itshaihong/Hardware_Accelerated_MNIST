@@ -10,12 +10,14 @@ from pynq import Overlay, allocate
 
 OVERLAY_PATH = "conv1.bit" 
 DMA0_NAME = "axi_dma_0"  
+DMA1_NAME = "axi_dma_1"
 ol = Overlay(OVERLAY_PATH)
 dma0 = getattr(ol, DMA0_NAME) 
+dma1 = getattr(ol, DMA1_NAME)
 
 
-# input_buf_fc1 = allocate(shape=(400 + 400*120,), dtype=np.int32)
-# output_buf_fc1 = allocate(shape=(120,), dtype=np.int32)
+input_buf_fc1 = allocate(shape=(400 + 400*120,), dtype=np.int32)
+output_buf_fc1 = allocate(shape=(120,), dtype=np.int32)
 
 input_buf_conv1 = allocate(shape=(1180,), dtype=np.int32)
 output_buf_conv1 = allocate(shape=(1176,), dtype=np.int32)
@@ -27,6 +29,12 @@ def dma0_transfer(in_buf, out_buf):
     dma0.sendchannel.transfer(in_buf)
     dma0.sendchannel.wait()
     dma0.recvchannel.wait()
+
+def dma1_transfer(in_buf, out_buf):
+    dma1.recvchannel.transfer(out_buf)
+    dma1.sendchannel.transfer(in_buf)
+    dma1.sendchannel.wait()
+    dma1.recvchannel.wait()
 
 def conv2d(x, filters, bias=None, padding=0, stride=1):
     """
@@ -147,11 +155,12 @@ def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
     fc1_W = np.loadtxt(f"{weights_path}/fc1_weight.csv", delimiter=',', dtype=np.float32).reshape(120, 400)
     fc1_b = np.loadtxt(f"{weights_path}/fc1_bias.csv",   delimiter=',', dtype=np.float32).reshape(120)
     fc1_W_q = np.round(fc1_W * 256).astype(np.int32) #quantization
+
     ###############
     # fc1 on hw
     ###############
-    # num_w = 120 * 400
-    # input_buf_fc1[:num_w] = fc1_W_q.reshape(-1)
+    num_w = 120 * 400
+    input_buf_fc1[:num_w] = fc1_W_q.reshape(-1)
 
     fc2_W = np.loadtxt(f"{weights_path}/fc2_weight.csv", delimiter=',', dtype=np.float32).reshape(84, 120)
     fc2_b = np.loadtxt(f"{weights_path}/fc2_bias.csv",   delimiter=',', dtype=np.float32).reshape(84)
@@ -184,15 +193,15 @@ def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
         ###############
         # fc1 on hw
         ###############
-        # flat_q  = np.round(flat  * 256).astype(np.int32) #quantization   
-        # input_buf_fc1[num_w:num_w + 400] = flat_q  # flat_q must be length 400
-        # dma0_transfer(input_buf_fc1, output_buf_fc1)
-        # h1 = output_buf_fc1.astype(np.float32) / 256.0  # dequantize
-        # h1 = h1 + fc1_b
-        # h1 = np.maximum(h1, 0.0)
-
-        h1 = fc1_W @ flat + fc1_b
+        flat_q  = np.round(flat  * 256).astype(np.int32) #quantization   
+        input_buf_fc1[num_w:num_w + 400] = flat_q  # flat_q must be length 400
+        dma0_transfer(input_buf_fc1, output_buf_fc1)
+        h1 = output_buf_fc1.astype(np.float32) / 256.0  # dequantize
+        h1 = h1 + fc1_b
         h1 = np.maximum(h1, 0.0)
+
+        # h1 = fc1_W @ flat + fc1_b
+        # h1 = np.maximum(h1, 0.0)
 
         h2 = fc2_W @ h1 + fc2_b
         h2 = np.maximum(h2, 0.0)
@@ -218,6 +227,8 @@ def evaluate_idx(total, images_path, labels_path, weights_path='weights_csv/'):
 
     input_buf_conv1.freebuffer()
     output_buf_conv1.freebuffer()
+    input_buf_fc1.freebuffer()
+    output_buf_fc1.freebuffer()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate LeNet-5 on raw idx MNIST test files (CPU)")

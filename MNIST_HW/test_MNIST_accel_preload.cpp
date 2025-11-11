@@ -20,7 +20,7 @@
 #include <ap_axi_sdata.h>
 #include <hls_stream.h>
 
-typedef ap_axiu<32,0,0,0> axis_t;
+typedef ap_axis<32,0,0,0> axis_t;
 
 // LeNet-5 Conv2 fixed sizes (must match kernel)
 constexpr int C_IN   = 6;
@@ -54,79 +54,55 @@ static inline int idx_w  (int co, int ci, int ky, int kx){ return ((co*C_IN + ci
 static inline int idx_c  (int co, int y, int x)         { return (co*H_CONV + y)*W_CONV + x; }
 static inline int idx_out(int co, int y, int x)         { return (co*H_OUT  + y)*W_OUT  + x; }
 
-// Quantized types
-typedef ap_int<8>  q8_t;
-typedef ap_int<32> q32_t;
-
-// Pack/unpack helpers (must match kernel little-endian layout)
-static inline ap_uint<32> pack4(q8_t a0, q8_t a1, q8_t a2, q8_t a3) {
-    ap_uint<32> w = 0;
-    w.range(7,0)    = ap_uint<8>(a0);
-    w.range(15,8)   = ap_uint<8>(a1);
-    w.range(23,16)  = ap_uint<8>(a2);
-    w.range(31,24)  = ap_uint<8>(a3);
-    return w;
-}
-static inline void unpack4(ap_uint<32> w, q8_t &a0, q8_t &a1, q8_t &a2, q8_t &a3) {
-    a0 = q8_t(ap_int<8>(w.range(7,0)));
-    a1 = q8_t(ap_int<8>(w.range(15,8)));
-    a2 = q8_t(ap_int<8>(w.range(23,16)));
-    a3 = q8_t(ap_int<8>(w.range(31,24)));
-}
 
 // Kernel under test
-extern "C" void conv2_preload_axis(
-    hls::stream<axis_t> &act_s,
-    hls::stream<axis_t> &out_s,
-    hls::stream<axis_t> &param_s,
-    int load_params,
-    int req_shift,
-    const q32_t req_m[C_OUT]
-);
+void conv2_preload_axis(hls::stream<axis_t>& act_s, //last activation stream
+                    hls::stream<axis_t>& wb_s, //weight and bias stream
+                    hls::stream<axis_t>& out_s);
 
-// Software reference implementing Conv2 + requant + ReLU + MaxPool
-void reference_conv2(const std::vector<q8_t> &A,
-                     const std::vector<q8_t> &W,
-                     const std::vector<q32_t> &B,
-                     const std::vector<q32_t> &REQ_M,
-                     int req_shift,
-                     std::vector<q8_t> &out)
+// Reference software (same algorithm)
+void reference_conv1_relu_pool(const std::vector<int>& img,
+                               const std::vector<int>& w,
+                               const std::vector<int>& b,
+                               std::vector<int>& out)
 {
-    std::vector<q8_t> C(CONV_ELEMS);
-
+    std::vector<int> conv(CONV_ELEMS);
+    // Conv + ReLU
     for (int y = 0; y < H_CONV; ++y) {
         for (int x = 0; x < W_CONV; ++x) {
             for (int co = 0; co < C_OUT; ++co) {
-                q32_t acc = B[co];
+                int acc = 0;
                 for (int ci = 0; ci < C_IN; ++ci) {
                     for (int ky = 0; ky < K; ++ky) {
                         for (int kx = 0; kx < K; ++kx) {
-                            q8_t vin = A[idx_act(ci, y + ky, x + kx)];
-                            q8_t wt  = W[idx_w(co, ci, ky, kx)];
-                            acc += q32_t(vin) * q32_t(wt);
+                            int vin = img[idx_act(ci, y + ky, x + kx)];
+                            int wgt = w[idx_w(co, ci, ky, kx)];
+                            acc += (vin * wgt);
                         }
                     }
                 }
-                q32_t t = acc * REQ_M[co] + ((req_shift > 0) ? (q32_t(1) << (req_shift - 1)) : q32_t(0));
-                q32_t s = (req_shift > 0) ? (t >> req_shift) : t;
-                q8_t q  = (s > 127) ? q8_t(127) : (s < -128) ? q8_t(-128) : q8_t(s);
-                if (q < q8_t(0)) q = q8_t(0);
-                C[idx_c(co, y, x)] = q;
+                acc = acc >> 8;
+                acc = acc + b[co];
+                if (acc < (int)0) acc = (int)0;
+                conv[idx_c(co, y, x)] = acc;
             }
         }
     }
-
     // MaxPool 2x2 stride 2
-    for (int co = 0; co < C_OUT; ++co) {
-        for (int y = 0; y < H_OUT; ++y) {
-            for (int x = 0; x < W_OUT; ++x) {
-                int y0 = y * S_POOL;
-                int x0 = x * S_POOL;
-                q8_t m = C[idx_c(co, y0,     x0    )];
-                q8_t t = C[idx_c(co, y0,     x0 + 1)]; if (t > m) m = t;
-                          t = C[idx_c(co, y0 + 1, x0    )]; if (t > m) m = t;
-                          t = C[idx_c(co, y0 + 1, x0 + 1)]; if (t > m) m = t;
+    for (int y = 0; y < H_OUT; ++y) {
+        for (int x = 0; x < W_OUT; ++x) {
+            for (int co = 0; co < C_OUT; ++co) {
+                int y0 = y * S_POOL, x0 = x * S_POOL;
+                int m = conv[idx_c(co, y0,     x0    )];
+                int t = conv[idx_c(co, y0,     x0 + 1)];
+                if (t > m) m = t;
+                t =        conv[idx_c(co, y0 + 1, x0    )];
+                if (t > m) m = t;
+                t =        conv[idx_c(co, y0 + 1, x0 + 1)];
+                if (t > m) m = t;
                 out[idx_out(co, y, x)] = m;
+                if (idx_out(co, y, x) <= 2){
+                }
             }
         }
     }
@@ -134,116 +110,85 @@ void reference_conv2(const std::vector<q8_t> &A,
 
 int main() {
     // Build deterministic int8 activations and weights, int32 bias
-    std::vector<q8_t>  A(ACT_ELEMS);
-    std::vector<q8_t>  W(W_ELEMS);
-    std::vector<q32_t> B(B_ELEMS);
+    std::vector<int> img(ACT_ELEMS);
+    std::vector<int> w(W_ELEMS);
+    std::vector<int> b(B_ELEMS);
+    for (int i = 0; i < ACT_ELEMS; ++i) img[i] = i % 32;
+    for (int i = 0; i < W_ELEMS;   ++i) w[i]   = 5;
+    for (int i = 0; i < B_ELEMS;   ++i) b[i]   = 1;
 
-    for (int i = 0; i < ACT_ELEMS; ++i) A[i] = q8_t(((i % 9) - 4));        // range [-4,4]
-    for (int i = 0; i < W_ELEMS;   ++i) W[i] = q8_t(((i % 7) - 3));        // range [-3,3]
-    for (int i = 0; i < B_ELEMS;   ++i) B[i] = q32_t((i % 5) - 2);         // small biases
-
-    // Quantization scales → fixed-point requant multipliers
-    // For testbench, choose req_shift=8 and REQ_M all 64 → s ≈ acc * (64 / 256) = acc / 4
-    int req_shift = 8;
-    std::vector<q32_t> REQ_M(C_OUT, q32_t(64));
+    std::vector<int> payload;
+    payload.reserve(W_ELEMS+B_ELEMS);
+    payload.insert(payload.end(), w.begin(),  w.end());
+    payload.insert(payload.end(), b.begin(),  b.end());
+    assert((int)payload.size() == W_ELEMS+B_ELEMS);
 
     // Prepare AXI streams
     hls::stream<axis_t> act_s, out_s, param_s;
 
-    // Build parameter stream: weights then bias
-    // Weights: pack 4 int8 per beat
-    {
-        int wi = 0;
-        for (int i = 0; i < W_BEATS; ++i) {
-            q8_t a0 = (wi < W_ELEMS) ? W[wi++] : q8_t(0);
-            q8_t a1 = (wi < W_ELEMS) ? W[wi++] : q8_t(0);
-            q8_t a2 = (wi < W_ELEMS) ? W[wi++] : q8_t(0);
-            q8_t a3 = (wi < W_ELEMS) ? W[wi++] : q8_t(0);
-            axis_t pkt;
-            pkt.data = pack4(a0, a1, a2, a3);
-            pkt.keep = 0xF;
-            pkt.strb = 0x0;
-            pkt.last = 0;
-            param_s.write(pkt);
-        }
+    // Drive input stream (TLAST on final beat)
+    for (int i = 0; i < ACT_ELEMS; ++i) {
+        axis_t pkt{};
+        pkt.data = img[i];
+        pkt.keep = -1;      // all bytes valid for 32-bit
+        pkt.last = (i == ACT_ELEMS - 1) ? 1 : 0;
+        act_s.write(pkt);
     }
-    // Bias: one int32 per beat
-    for (int i = 0; i < B_BEATS; ++i) {
-        axis_t pkt;
-        pkt.data = ap_uint<32>(ap_int<32>(B[i]));
-        pkt.keep = 0xF;
-        pkt.strb = 0x0;
-        pkt.last = 0;
+
+    for (int i = 0; i < W_ELEMS+B_ELEMS; ++i) {
+        axis_t pkt{};
+        pkt.data = payload[i];
+        pkt.keep = -1;      // all bytes valid for 32-bit
+        pkt.last = (i == ACT_ELEMS - 1) ? 1 : 0;
         param_s.write(pkt);
     }
 
-    // Build activation stream: pack 4 int8 per beat
-    {
-        int ai = 0;
-        for (int i = 0; i < ACT_BEATS; ++i) {
-            q8_t a0 = (ai < ACT_ELEMS) ? A[ai++] : q8_t(0);
-            q8_t a1 = (ai < ACT_ELEMS) ? A[ai++] : q8_t(0);
-            q8_t a2 = (ai < ACT_ELEMS) ? A[ai++] : q8_t(0);
-            q8_t a3 = (ai < ACT_ELEMS) ? A[ai++] : q8_t(0);
-            axis_t pkt;
-            pkt.data = pack4(a0, a1, a2, a3);
-            pkt.keep = 0xF;
-            pkt.strb = 0x0;
-            pkt.last = 0; // kernel doesn't rely on TLAST for parsing
-            act_s.write(pkt);
-        }
-    }
-
-    // Prepare AXI-Lite arguments (req_m array)
-    q32_t req_m_arr[C_OUT];
-    for (int co = 0; co < C_OUT; ++co) req_m_arr[co] = REQ_M[co];
 
     // Run kernel: load params and process one frame
-    conv2_preload_axis(act_s, out_s, param_s, /*load_params=*/1, req_shift, req_m_arr);
+    conv2_preload_axis(act_s, param_s, out_s);
 
-    // Read outputs: expect OUT_BEATS beats; TLAST = 1 on last beat
-    std::vector<q8_t> out_hw(OUT_ELEMS);
-    {
-        int oi = 0;
-        for (int i = 0; i < OUT_BEATS; ++i) {
-            if (out_s.empty()) {
-                std::cerr << "ERROR: output stream underrun at beat " << i << "\n";
-                return 1;
-            }
-            axis_t pkt = out_s.read();
-            q8_t a0, a1, a2, a3;
-            unpack4(pkt.data, a0, a1, a2, a3);
-            if (oi < OUT_ELEMS) out_hw[oi++] = a0;
-            if (oi < OUT_ELEMS) out_hw[oi++] = a1;
-            if (oi < OUT_ELEMS) out_hw[oi++] = a2;
-            if (oi < OUT_ELEMS) out_hw[oi++] = a3;
-
-            if ((i == OUT_BEATS - 1 && pkt.last != 1) ||
-                (i != OUT_BEATS - 1 && pkt.last == 1)) {
-                std::cerr << "ERROR: TLAST protocol violation at beat " << i << "\n";
-                return 1;
-            }
+    // Read outputs (expect OUT_ELEMS = 864), TLAST on last beat
+    std::vector<int> out_hw(OUT_ELEMS);
+    for (int i = 0; i < OUT_ELEMS; ++i) {
+        if (out_s.empty()) {
+            std::cerr << "ERROR: output underrun at i=" << i << "\n";
+            return 1;
+        }
+        axis_t pkt = out_s.read();
+        out_hw[i] = pkt.data;
+        if ((i == OUT_ELEMS - 1 && pkt.last != 1) ||
+            (i != OUT_ELEMS - 1 && pkt.last == 1)) {
+            std::cerr << "ERROR: TLAST protocol violation at i=" << i << "\n";
+            return 1;
         }
     }
 
-    // Software reference
-    std::vector<q8_t> out_ref(OUT_ELEMS, q8_t(0));
-    reference_conv2(A, W, B, REQ_M, req_shift, out_ref);
+    // Software reference and compare
+    std::vector<int> out_ref(OUT_ELEMS, 0);
+    reference_conv1_relu_pool(img, w, b, out_ref);
 
-    // Compare
     int mismatches = 0;
+    const float tol = 1e-3f;
     for (int i = 0; i < OUT_ELEMS; ++i) {
-        int hw = (int)out_hw[i];
-        int rf = (int)out_ref[i];
-        if (hw != rf) {
+        float a = out_hw[i];
+        float r = out_ref[i];
+        float diff = std::fabs(a - r);
+        if (i<=256){
+                            std::cout << "at " << i
+                          << ": hw=" << a << " ref=" << r
+                          << " diff=" << diff << "\n";
+        }
+        if (diff > tol || !std::isfinite(a) || !std::isfinite(r)) {
             if (++mismatches <= 20) {
-                std::cout << "Mismatch at " << i << ": hw=" << hw << " ref=" << rf << "\n";
+                std::cout << "Mismatch at " << i
+                          << ": hw=" << a << " ref=" << r
+                          << " diff=" << diff << "\n";
             }
         }
     }
 
     if (mismatches == 0) {
-        std::cout << "PASS: All " << OUT_ELEMS << " int8 outputs match exactly\n";
+        std::cout << "PASS: All " << OUT_ELEMS << " outputs match within tol=" << tol << "\n";
         return 0;
     } else {
         std::cout << "FAIL: " << mismatches << " mismatches out of " << OUT_ELEMS << "\n";

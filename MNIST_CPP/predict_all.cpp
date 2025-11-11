@@ -231,6 +231,7 @@ int main() {
     if (fc3_w.size() != 10u*84u) { std::cerr << "fc3_w size mismatch\n"; return 1; }
 
     size_t correct = 0;
+        double total_ms = 0.0;
 
     // Buffers reused across images to reduce allocations
     std::vector<float> x0(1*28*28);
